@@ -88,3 +88,25 @@ pub fn runCommandAsUser(
         .stderr = try stderr.toOwnedSlice(allocator),
     };
 }
+
+test "lookup rejects unknown user" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.UserNotFound, lookup(allocator, "__liblink_user_does_not_exist__"));
+}
+
+test "runCommandAsUser executes command in account shell" {
+    const allocator = std.testing.allocator;
+    const username_owned = std.process.getEnvVarOwned(allocator, "USER") catch null;
+    defer if (username_owned) |u| allocator.free(u);
+    const username = username_owned orelse "root";
+
+    var account = try lookup(allocator, username);
+    defer account.deinit();
+
+    const result = try runCommandAsUser(allocator, &account, "printf test-ok", 1024);
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expectEqualStrings("test-ok", result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), result.stderr.len);
+}

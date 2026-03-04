@@ -2,13 +2,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const wire = @import("../protocol/wire.zig");
 const auth = @import("../protocol/auth.zig");
-const crypto = @import("../crypto/crypto.zig");
 const libfast = @import("libfast");
 
 /// Public key authentication per RFC 4252 Section 7
 ///
 /// Supports ssh-ed25519 keys as required by SSH/QUIC.
-
 /// Public key algorithm types
 pub const PublicKeyAlgorithm = enum {
     ssh_ed25519,
@@ -311,7 +309,7 @@ pub fn signEd25519(
     data: []const u8,
     private_key: *const [64]u8,
 ) ![]u8 {
-    const signature = try crypto.signature.sign(data, private_key);
+    const signature = try libfast.ssh_signature.sign(data, private_key);
     return libfast.ssh_hostkey.encode_ed25519_signature_blob(allocator, &signature);
 }
 
@@ -322,7 +320,7 @@ pub fn verifyEd25519(
     public_key: *const [32]u8,
 ) !bool {
     const signature = try libfast.ssh_hostkey.decode_ed25519_signature_blob(signature_blob);
-    return crypto.signature.verifyEd25519(data, &signature, public_key);
+    return libfast.ssh_signature.verifyEd25519(data, &signature, public_key);
 }
 
 /// SSH public key fingerprint (SHA-256)
@@ -451,7 +449,7 @@ test "verifyEd25519 - valid signature" {
     // Generate a key pair
     var prng = std.Random.DefaultPrng.init(42);
     const random = prng.random();
-    const keypair = crypto.signature.KeyPair.generate(random);
+    const keypair = libfast.ssh_signature.KeyPair.generate(random);
 
     const data = "message to sign and verify";
 
@@ -470,7 +468,7 @@ test "verifyEd25519 - invalid signature" {
 
     var prng = std.Random.DefaultPrng.init(123);
     const random = prng.random();
-    const keypair = crypto.signature.KeyPair.generate(random);
+    const keypair = libfast.ssh_signature.KeyPair.generate(random);
 
     const data = "original message";
     const signature = try signEd25519(allocator, data, &keypair.private_key);

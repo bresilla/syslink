@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.11] - 2026-03-04
+
+### <!-- 2 -->🚜 Refactor
+
+- Remove liblink crypto module and use shared primitives
+- Convert liblink crypto module into compatibility facade
+
+### <!-- 3 -->📚 Documentation
+
+- Refactor documentation structure and content
+
+### <!-- 6 -->🧪 Testing
+
+- Add test cases for various modules
+
 ## [0.0.10] - 2026-03-04
 
 ### <!-- 0 -->⛰️  Features

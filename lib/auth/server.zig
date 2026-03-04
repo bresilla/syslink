@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const userauth = @import("../protocol/userauth.zig");
-const crypto = @import("../crypto/crypto.zig");
+const libfast = @import("libfast");
 
 /// SSH Authentication Server
 ///
@@ -152,7 +152,7 @@ pub const AuthServer = struct {
         @memcpy(&signature_bytes, raw_signature_bytes);
 
         // Verify signature
-        const valid = crypto.signature.verifyEd25519(sig_data, &signature_bytes, &public_key);
+        const valid = libfast.ssh_signature.verifyEd25519(sig_data, &signature_bytes, &public_key);
 
         if (valid) {
             return self.createSuccess(username);

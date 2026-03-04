@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const userauth = @import("../protocol/userauth.zig");
-const crypto = @import("../crypto/crypto.zig");
+const libfast = @import("libfast");
 
 /// SSH Authentication Client
 ///
@@ -99,7 +99,7 @@ pub const AuthClient = struct {
             @memcpy(sig_data[offset .. offset + public_key_blob.len], public_key_blob);
 
             // Sign the data
-            const raw_signature = crypto.signature.sign(sig_data, priv_key);
+            const raw_signature = try libfast.ssh_signature.sign(sig_data, priv_key);
 
             // Encode signature as SSH signature blob
             // Format: string(algorithm_name) || string(raw_signature)

@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const crypto = @import("../crypto/crypto.zig");
 
 /// Obfuscated envelope constants
 pub const obfs_nonce_size = 12;
@@ -38,7 +37,7 @@ pub fn processKeyword(keyword: []const u8, key_out: *[obfs_key_size]u8) void {
     const trimmed = trimWhitespace(keyword);
 
     // Step 4: Compute SHA-256 digest
-    crypto.hash.sha256(trimmed, key_out);
+    std.crypto.hash.sha2.Sha256.hash(trimmed, key_out, .{});
 }
 
 /// Trim leading and trailing whitespace characters
@@ -117,7 +116,14 @@ pub fn encryptEnvelope(
     var tag: [obfs_tag_size]u8 = undefined;
 
     // Encrypt using AES-256-GCM
-    try crypto.aead.encrypt(&key, &nonce, plaintext, payload, &tag, "");
+    std.crypto.aead.aes_gcm.Aes256Gcm.encrypt(
+        payload,
+        &tag,
+        plaintext,
+        "",
+        nonce,
+        key,
+    );
 
     return ObfuscatedEnvelope{
         .nonce = nonce,
@@ -153,13 +159,13 @@ pub fn decryptEnvelope(
     errdefer allocator.free(plaintext);
 
     // Decrypt using AES-256-GCM
-    crypto.aead.decrypt(
-        &key,
-        &envelope.nonce,
-        envelope.payload,
+    std.crypto.aead.aes_gcm.Aes256Gcm.decrypt(
         plaintext,
-        &envelope.tag,
+        envelope.payload,
+        envelope.tag,
         "",
+        envelope.nonce,
+        key,
     ) catch {
         allocator.free(plaintext);
         return error.DecryptionFailed;

@@ -24,8 +24,6 @@ pub const common = struct {
     pub const constants = @import("common/constants.zig");
 };
 
-pub const crypto = @import("crypto/crypto.zig");
-
 pub const kex = struct {
     pub const shared_secrets = @import("kex/shared_secrets.zig");
     pub const exchange = @import("kex/exchange.zig");

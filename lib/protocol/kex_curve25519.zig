@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const crypto = @import("../crypto/crypto.zig");
 const libfast = @import("libfast");
 const wire = @import("wire.zig");
 const constants = @import("../common/constants.zig");
@@ -8,7 +7,6 @@ const constants = @import("../common/constants.zig");
 /// curve25519-sha256 key exchange method (RFC 8731)
 ///
 /// This implements the required key exchange method for SSH/QUIC.
-
 /// Client ephemeral key pair
 pub const ClientEphemeralKey = struct {
     public_key: [32]u8,
@@ -213,8 +211,7 @@ pub fn calculateExchangeHash(
     }
 
     const hash = try allocator.alloc(u8, 32);
-    const hash_result = crypto.hash.sha256(hash_input);
-    @memcpy(hash, &hash_result);
+    std.crypto.hash.sha2.Sha256.hash(hash_input, hash[0..32], .{});
 
     return hash;
 }

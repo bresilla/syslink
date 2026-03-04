@@ -175,21 +175,97 @@ fn encodeMinimalModes(allocator: std.mem.Allocator) ![]u8 {
     }.call;
 
     // Set reasonable defaults
-    try encodeByte(&buffer, &offset, VINTR, 3);    // Ctrl+C
-    try encodeByte(&buffer, &offset, VQUIT, 28);   // Ctrl+\
+    try encodeByte(&buffer, &offset, VINTR, 3); // Ctrl+C
+    try encodeByte(&buffer, &offset, VQUIT, 28); // Ctrl+\
     try encodeByte(&buffer, &offset, VERASE, 127); // Backspace
-    try encodeByte(&buffer, &offset, VEOF, 4);     // Ctrl+D
-    try encodeByte(&buffer, &offset, ISIG, 1);     // Enable signals
-    try encodeByte(&buffer, &offset, ICANON, 1);   // Canonical mode
-    try encodeByte(&buffer, &offset, ECHO, 1);     // Echo input
-    try encodeByte(&buffer, &offset, ECHOE, 1);    // Visual erase
-    try encodeByte(&buffer, &offset, ECHOK, 1);    // Echo kill
-    try encodeByte(&buffer, &offset, OPOST, 1);    // Output processing
-    try encodeByte(&buffer, &offset, ONLCR, 1);    // NL to CR+NL
+    try encodeByte(&buffer, &offset, VEOF, 4); // Ctrl+D
+    try encodeByte(&buffer, &offset, ISIG, 1); // Enable signals
+    try encodeByte(&buffer, &offset, ICANON, 1); // Canonical mode
+    try encodeByte(&buffer, &offset, ECHO, 1); // Echo input
+    try encodeByte(&buffer, &offset, ECHOE, 1); // Visual erase
+    try encodeByte(&buffer, &offset, ECHOK, 1); // Echo kill
+    try encodeByte(&buffer, &offset, OPOST, 1); // Output processing
+    try encodeByte(&buffer, &offset, ONLCR, 1); // NL to CR+NL
 
     // Terminate
     buffer[offset] = TTY_OP_END;
     offset += 1;
 
     return try allocator.dupe(u8, buffer[0..offset]);
+}
+
+fn decodeModeValue(encoded: []const u8, start: usize) u32 {
+    return (@as(u32, encoded[start + 1]) << 24) |
+        (@as(u32, encoded[start + 2]) << 16) |
+        (@as(u32, encoded[start + 3]) << 8) |
+        @as(u32, encoded[start + 4]);
+}
+
+test "encodeMinimalModes includes expected defaults" {
+    const allocator = std.testing.allocator;
+
+    const encoded = try encodeMinimalModes(allocator);
+    defer allocator.free(encoded);
+
+    try std.testing.expect(encoded.len > 1);
+    try std.testing.expectEqual(TTY_OP_END, encoded[encoded.len - 1]);
+
+    var offset: usize = 0;
+    var found_intr = false;
+    var found_eof = false;
+    var found_icanon = false;
+    var found_echo = false;
+
+    while (offset < encoded.len and encoded[offset] != TTY_OP_END) : (offset += 5) {
+        try std.testing.expect(offset + 5 <= encoded.len);
+
+        const opcode = encoded[offset];
+        const value = decodeModeValue(encoded, offset);
+
+        switch (opcode) {
+            VINTR => {
+                found_intr = true;
+                try std.testing.expectEqual(@as(u32, 3), value);
+            },
+            VEOF => {
+                found_eof = true;
+                try std.testing.expectEqual(@as(u32, 4), value);
+            },
+            ICANON => {
+                found_icanon = true;
+                try std.testing.expectEqual(@as(u32, 1), value);
+            },
+            ECHO => {
+                found_echo = true;
+                try std.testing.expectEqual(@as(u32, 1), value);
+            },
+            else => {},
+        }
+    }
+
+    try std.testing.expect(found_intr);
+    try std.testing.expect(found_eof);
+    try std.testing.expect(found_icanon);
+    try std.testing.expect(found_echo);
+}
+
+test "encodeMinimalModes entries are fixed-width and end terminated" {
+    const allocator = std.testing.allocator;
+
+    const encoded = try encodeMinimalModes(allocator);
+    defer allocator.free(encoded);
+
+    const payload_len = encoded.len - 1;
+    try std.testing.expectEqual(@as(usize, 0), payload_len % 5);
+    try std.testing.expectEqual(TTY_OP_END, encoded[encoded.len - 1]);
+}
+
+test "encodeTerminalModes always terminates with TTY_OP_END" {
+    const allocator = std.testing.allocator;
+
+    const encoded = try encodeTerminalModes(allocator);
+    defer allocator.free(encoded);
+
+    try std.testing.expect(encoded.len > 0);
+    try std.testing.expectEqual(TTY_OP_END, encoded[encoded.len - 1]);
 }

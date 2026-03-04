@@ -1,7 +1,10 @@
-.PHONY: build install release
+.PHONY: build test install release
 
 build:
 	zig build -Doptimize=ReleaseFast
+
+test:
+	zig build test --summary all
 
 install: build
 	install -Dm644 "./zig-out/lib/libvoidbox.a" "$(HOME)/.local/lib/libvoidbox.a"
