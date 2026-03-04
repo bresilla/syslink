@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const crypto = @import("../crypto/crypto.zig");
+const libfast = @import("libfast");
 const wire = @import("wire.zig");
 
 /// SSH/QUIC key derivation per SPEC.md Section 5.1
@@ -27,17 +27,10 @@ pub fn deriveQuicSecrets(
     client_secret: *[32]u8,
     server_secret: *[32]u8,
 ) !void {
-    // Encode secret_data = mpint(K) || string(H)
-    const secret_data = try encodeSecretData(allocator, shared_secret_k, exchange_hash_h);
-    defer allocator.free(secret_data);
-
-    // Derive client secret: HMAC-SHA256("ssh/quic client", secret_data)
-    const client_label = "ssh/quic client";
-    crypto.kdf.hmacSha256(client_label, secret_data, client_secret);
-
-    // Derive server secret: HMAC-SHA256("ssh/quic server", secret_data)
-    const server_label = "ssh/quic server";
-    crypto.kdf.hmacSha256(server_label, secret_data, server_secret);
+    var derived = try libfast.ssh_secrets.deriveSshQuicSecrets(allocator, shared_secret_k, exchange_hash_h);
+    defer derived.zeroize();
+    client_secret.* = derived.client_initial_secret;
+    server_secret.* = derived.server_initial_secret;
 }
 
 /// Encode secret_data = mpint(K) || string(H)

@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const wire = @import("../protocol/wire.zig");
 const auth = @import("../protocol/auth.zig");
 const crypto = @import("../crypto/crypto.zig");
+const libfast = @import("libfast");
 
 /// Public key authentication per RFC 4252 Section 7
 ///
@@ -310,20 +311,8 @@ pub fn signEd25519(
     data: []const u8,
     private_key: *const [64]u8,
 ) ![]u8 {
-    var signature: [64]u8 = undefined;
-    crypto.signature.signEd25519(data, private_key, &signature);
-
-    // Encode signature as SSH signature blob
-    const alg_name = "ssh-ed25519";
-    const size = 4 + alg_name.len + 4 + 64;
-    const buffer = try allocator.alloc(u8, size);
-    errdefer allocator.free(buffer);
-
-    var writer = wire.Writer{ .buffer = buffer };
-    try writer.writeString(alg_name);
-    try writer.writeString(&signature);
-
-    return buffer;
+    const signature = try crypto.signature.sign(data, private_key);
+    return libfast.ssh_hostkey.encode_ed25519_signature_blob(allocator, &signature);
 }
 
 /// Verify Ed25519 signature
@@ -332,41 +321,13 @@ pub fn verifyEd25519(
     data: []const u8,
     public_key: *const [32]u8,
 ) !bool {
-    var reader = wire.Reader{ .buffer = signature_blob };
-
-    const alg_name = try reader.readString(std.heap.page_allocator);
-    defer std.heap.page_allocator.free(alg_name);
-
-    if (!std.mem.eql(u8, alg_name, "ssh-ed25519")) {
-        return error.InvalidAlgorithm;
-    }
-
-    const sig_data = try reader.readString(std.heap.page_allocator);
-    defer std.heap.page_allocator.free(sig_data);
-
-    if (sig_data.len != 64) {
-        return error.InvalidSignatureLength;
-    }
-
-    var signature: [64]u8 = undefined;
-    @memcpy(&signature, sig_data);
-
+    const signature = try libfast.ssh_hostkey.decode_ed25519_signature_blob(signature_blob);
     return crypto.signature.verifyEd25519(data, &signature, public_key);
 }
 
 /// SSH public key fingerprint (SHA-256)
 pub fn fingerprint(allocator: Allocator, public_key_blob: []const u8) ![]u8 {
-    const hash = crypto.hash.sha256(public_key_blob);
-
-    // Format as SHA256:base64
-    const prefix = "SHA256:";
-    const base64_len = std.base64.standard.Encoder.calcSize(32);
-    const result = try allocator.alloc(u8, prefix.len + base64_len);
-
-    @memcpy(result[0..prefix.len], prefix);
-    _ = std.base64.standard.Encoder.encode(result[prefix.len..], &hash);
-
-    return result;
+    return libfast.ssh_hostkey.fingerprint_sha256(allocator, public_key_blob);
 }
 
 // ============================================================================

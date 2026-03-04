@@ -1,5 +1,5 @@
 const std = @import("std");
-const kdf = @import("../crypto/kdf.zig");
+const libfast = @import("libfast");
 
 /// Derive QUIC secrets from SSH key exchange
 /// Per SPEC.md Section 5.1: QUIC Session Setup
@@ -13,7 +13,6 @@ const kdf = @import("../crypto/kdf.zig");
 /// - server_secret = HMAC-SHA256("ssh/quic server", secret_data)
 ///
 /// Where secret_data = mpint(K) || string(H)
-
 pub const QuicSecrets = struct {
     client_secret: [32]u8,
     server_secret: [32]u8,
@@ -30,19 +29,13 @@ pub fn deriveQuicSecrets(
     exchange_hash_h: []const u8,
     allocator: std.mem.Allocator,
 ) !QuicSecrets {
-    // Encode secret_data = mpint(K) || string(H)
-    const secret_data = try encodeSecretData(shared_secret_k, exchange_hash_h, allocator);
-    defer allocator.free(secret_data);
+    var secrets = try libfast.ssh_secrets.deriveSshQuicSecrets(allocator, shared_secret_k, exchange_hash_h);
+    defer secrets.zeroize();
 
-    var secrets: QuicSecrets = undefined;
-
-    // client_secret = HMAC-SHA256("ssh/quic client", secret_data)
-    kdf.hmacSha256("ssh/quic client", secret_data, &secrets.client_secret);
-
-    // server_secret = HMAC-SHA256("ssh/quic server", secret_data)
-    kdf.hmacSha256("ssh/quic server", secret_data, &secrets.server_secret);
-
-    return secrets;
+    return .{
+        .client_secret = secrets.client_initial_secret,
+        .server_secret = secrets.server_initial_secret,
+    };
 }
 
 /// Encode secret_data = mpint(K) || string(H)
@@ -55,25 +48,15 @@ fn encodeSecretData(
     h: []const u8,
     allocator: std.mem.Allocator,
 ) ![]u8 {
-    // Calculate total size: mpint(K) + string(H)
-    // mpint: 4 bytes length + K data
-    // string: 4 bytes length + H data
     const size = 4 + k.len + 4 + h.len;
-    var buffer = try allocator.alloc(u8, size);
+    const buffer = try allocator.alloc(u8, size);
 
-    var offset: usize = 0;
+    std.mem.writeInt(u32, buffer[0..4], @intCast(k.len), .big);
+    @memcpy(buffer[4 .. 4 + k.len], k);
 
-    // Encode mpint(K)
-    // Length in network byte order (big-endian)
-    std.mem.writeInt(u32, buffer[offset..][0..4], @intCast(k.len), .big);
-    offset += 4;
-    @memcpy(buffer[offset..][0..k.len], k);
-    offset += k.len;
-
-    // Encode string(H)
-    std.mem.writeInt(u32, buffer[offset..][0..4], @intCast(h.len), .big);
-    offset += 4;
-    @memcpy(buffer[offset..][0..h.len], h);
+    const h_offset = 4 + k.len;
+    std.mem.writeInt(u32, buffer[h_offset..][0..4], @intCast(h.len), .big);
+    @memcpy(buffer[h_offset + 4 .. h_offset + 4 + h.len], h);
 
     return buffer;
 }

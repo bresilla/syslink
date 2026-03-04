@@ -1,53 +1,18 @@
 const std = @import("std");
-const crypto = std.crypto;
+const libfast = @import("libfast");
 
-pub const public_key_size = 32;
-pub const private_key_size = 32;
-pub const shared_secret_size = 32;
+pub const public_key_size = libfast.ssh_ecdh.public_key_size;
+pub const private_key_size = libfast.ssh_ecdh.private_key_size;
+pub const shared_secret_size = libfast.ssh_ecdh.shared_secret_size;
 
-pub const EcdhError = error{
-    KeyExchangeFailed,
-};
-
-pub const KeyPair = struct {
-    public_key: [public_key_size]u8,
-    private_key: [private_key_size]u8,
-
-    pub fn generate(random: std.Random) EcdhError!KeyPair {
-        var private_key: [private_key_size]u8 = undefined;
-        random.bytes(&private_key);
-
-        const public_key = crypto.dh.X25519.recoverPublicKey(private_key) catch
-            return error.KeyExchangeFailed;
-
-        return .{
-            .public_key = public_key,
-            .private_key = private_key,
-        };
-    }
-
-    pub fn fromPrivateKey(private_key: [private_key_size]u8) EcdhError!KeyPair {
-        const public_key = crypto.dh.X25519.recoverPublicKey(private_key) catch
-            return error.KeyExchangeFailed;
-        return .{
-            .public_key = public_key,
-            .private_key = private_key,
-        };
-    }
-};
+pub const EcdhError = libfast.ssh_ecdh.EcdhError;
+pub const KeyPair = libfast.ssh_ecdh.KeyPair;
 
 pub fn exchange(
     private_key: *const [private_key_size]u8,
     peer_public_key: *const [public_key_size]u8,
 ) EcdhError![shared_secret_size]u8 {
-    const shared = crypto.dh.X25519.scalarmult(
-        private_key.*,
-        peer_public_key.*,
-    ) catch {
-        return error.KeyExchangeFailed;
-    };
-
-    return shared;
+    return libfast.ssh_ecdh.exchange(private_key, peer_public_key);
 }
 
 test "X25519 key exchange" {
