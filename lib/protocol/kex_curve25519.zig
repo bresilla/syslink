@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const crypto = @import("../crypto/crypto.zig");
+const libfast = @import("libfast");
 const wire = @import("wire.zig");
 const constants = @import("../common/constants.zig");
 
@@ -15,7 +16,7 @@ pub const ClientEphemeralKey = struct {
 
     /// Generate a new client ephemeral key pair
     pub fn generate(random: std.Random) !ClientEphemeralKey {
-        const kp = try crypto.ecdh.KeyPair.generate(random);
+        const kp = try libfast.ssh_ecdh.KeyPair.generate(random);
         return ClientEphemeralKey{
             .public_key = kp.public_key,
             .private_key = kp.private_key,
@@ -72,7 +73,7 @@ pub const ServerEphemeralKey = struct {
 
     /// Generate a new server ephemeral key pair
     pub fn generate(random: std.Random) !ServerEphemeralKey {
-        const kp = try crypto.ecdh.KeyPair.generate(random);
+        const kp = try libfast.ssh_ecdh.KeyPair.generate(random);
         return ServerEphemeralKey{
             .public_key = kp.public_key,
             .private_key = kp.private_key,
@@ -147,7 +148,7 @@ pub fn calculateSharedSecret(
     private_key: *const [32]u8,
     peer_public_key: *const [32]u8,
 ) ![32]u8 {
-    return crypto.ecdh.exchange(private_key, peer_public_key);
+    return libfast.ssh_ecdh.exchange(private_key, peer_public_key);
 }
 
 /// Calculate exchange hash H for curve25519-sha256

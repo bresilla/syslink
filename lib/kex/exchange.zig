@@ -8,6 +8,7 @@ const kex_curve25519 = @import("../protocol/kex_curve25519.zig");
 const shared_secrets = @import("shared_secrets.zig");
 const crypto = @import("../crypto/crypto.zig");
 const constants = @import("../common/constants.zig");
+const libfast = @import("libfast");
 
 pub const ClientKexResult = struct {
     client_secret: [32]u8,
@@ -543,29 +544,8 @@ fn signExchangeHash(
     private_key: *const [64]u8,
     allocator: Allocator,
 ) ![]u8 {
-    // Sign the exchange hash
-    const raw_signature = crypto.signature.sign(exchange_hash, private_key);
-
-    // Encode as SSH signature blob: string("ssh-ed25519") || string(signature)
-    const algorithm = "ssh-ed25519";
-    const blob_size = 4 + algorithm.len + 4 + raw_signature.len;
-    const signature_blob = try allocator.alloc(u8, blob_size);
-    errdefer allocator.free(signature_blob);
-
-    var offset: usize = 0;
-
-    // Write algorithm name
-    std.mem.writeInt(u32, signature_blob[offset..][0..4], @intCast(algorithm.len), .big);
-    offset += 4;
-    @memcpy(signature_blob[offset .. offset + algorithm.len], algorithm);
-    offset += algorithm.len;
-
-    // Write signature
-    std.mem.writeInt(u32, signature_blob[offset..][0..4], @intCast(raw_signature.len), .big);
-    offset += 4;
-    @memcpy(signature_blob[offset .. offset + raw_signature.len], &raw_signature);
-
-    return signature_blob;
+    const raw_signature = try libfast.ssh_signature.sign(exchange_hash, private_key);
+    return libfast.ssh_hostkey.encode_ed25519_signature_blob(allocator, &raw_signature);
 }
 
 /// Verify server signature over exchange hash
@@ -577,14 +557,10 @@ fn verifyServerSignature(
     signature_blob: []const u8,
     host_key_blob: []const u8,
 ) !void {
-    // Decode SSH signature blob: string(algorithm) || string(signature)
     const raw_signature = try decodeSshSignatureBlob(signature_blob);
-
-    // Decode SSH host key blob: string(algorithm) || string(public_key)
     const public_key = try decodeSshHostKeyBlob(host_key_blob);
 
-    // Verify signature
-    if (!crypto.signature.verifyEd25519(exchange_hash, &raw_signature, &public_key)) {
+    if (!libfast.ssh_signature.verifyEd25519(exchange_hash, &raw_signature, &public_key)) {
         std.log.err("Server signature verification failed - hash_len={} sig_len={} pubkey_len={}", .{
             exchange_hash.len,
             raw_signature.len,
@@ -613,116 +589,28 @@ fn verifyTrustedHostKey(
 }
 
 fn computeHostKeyFingerprint(allocator: Allocator, host_key_blob: []const u8) ![]u8 {
-    var digest: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(host_key_blob, &digest, .{});
-
-    const b64_len = std.base64.standard.Encoder.calcSize(digest.len);
-    const b64 = try allocator.alloc(u8, b64_len);
-    defer allocator.free(b64);
-    _ = std.base64.standard.Encoder.encode(b64, &digest);
-
-    return std.fmt.allocPrint(allocator, "SHA256:{s}", .{b64});
+    return libfast.ssh_hostkey.fingerprint_sha256(allocator, host_key_blob);
 }
 
 /// Decode SSH signature blob
 ///
 /// Format: string("ssh-ed25519") || string(64-byte signature)
 fn decodeSshSignatureBlob(blob: []const u8) ![64]u8 {
-    var offset: usize = 0;
-
-    // Read algorithm name
-    if (blob.len < 4) return error.InvalidSignatureBlob;
-    const alg_len = std.mem.readInt(u32, blob[offset..][0..4], .big);
-    offset += 4;
-
-    if (offset + alg_len > blob.len) return error.InvalidSignatureBlob;
-    const algorithm = blob[offset .. offset + alg_len];
-    offset += alg_len;
-
-    // Verify algorithm
-    if (!std.mem.eql(u8, algorithm, "ssh-ed25519")) {
-        std.log.err("Unsupported signature algorithm: {s}", .{algorithm});
-        return error.UnsupportedAlgorithm;
-    }
-
-    // Read signature
-    if (offset + 4 > blob.len) return error.InvalidSignatureBlob;
-    const sig_len = std.mem.readInt(u32, blob[offset..][0..4], .big);
-    offset += 4;
-
-    if (sig_len != 64) {
-        std.log.err("Invalid Ed25519 signature length: {}", .{sig_len});
-        return error.InvalidSignatureLength;
-    }
-
-    if (offset + sig_len > blob.len) return error.InvalidSignatureBlob;
-    var signature: [64]u8 = undefined;
-    @memcpy(&signature, blob[offset .. offset + 64]);
-
-    return signature;
+    return libfast.ssh_hostkey.decode_ed25519_signature_blob(blob);
 }
 
 /// Decode SSH host key blob
 ///
 /// Format: string("ssh-ed25519") || string(32-byte public key)
 fn decodeSshHostKeyBlob(blob: []const u8) ![32]u8 {
-    var offset: usize = 0;
-
-    // Read algorithm name
-    if (blob.len < 4) return error.InvalidHostKeyBlob;
-    const alg_len = std.mem.readInt(u32, blob[offset..][0..4], .big);
-    offset += 4;
-
-    if (offset + alg_len > blob.len) return error.InvalidHostKeyBlob;
-    const algorithm = blob[offset .. offset + alg_len];
-    offset += alg_len;
-
-    // Verify algorithm
-    if (!std.mem.eql(u8, algorithm, "ssh-ed25519")) {
-        std.log.err("Unsupported host key algorithm: {s}", .{algorithm});
-        return error.UnsupportedAlgorithm;
-    }
-
-    // Read public key
-    if (offset + 4 > blob.len) return error.InvalidHostKeyBlob;
-    const key_len = std.mem.readInt(u32, blob[offset..][0..4], .big);
-    offset += 4;
-
-    if (key_len != 32) {
-        std.log.err("Invalid Ed25519 public key length: {}", .{key_len});
-        return error.InvalidPublicKeyLength;
-    }
-
-    if (offset + key_len > blob.len) return error.InvalidHostKeyBlob;
-    var public_key: [32]u8 = undefined;
-    @memcpy(&public_key, blob[offset .. offset + 32]);
-
-    return public_key;
+    return libfast.ssh_hostkey.decode_ed25519_host_key_blob(blob);
 }
 
 /// Encode Ed25519 public key as SSH host key blob
 ///
 /// Format: string("ssh-ed25519") || string(32-byte public key)
 fn encodeSshHostKey(allocator: Allocator, public_key: *const [32]u8) ![]u8 {
-    const algorithm = "ssh-ed25519";
-    const blob_size = 4 + algorithm.len + 4 + public_key.len;
-    const host_key_blob = try allocator.alloc(u8, blob_size);
-    errdefer allocator.free(host_key_blob);
-
-    var offset: usize = 0;
-
-    // Write algorithm name
-    std.mem.writeInt(u32, host_key_blob[offset..][0..4], @intCast(algorithm.len), .big);
-    offset += 4;
-    @memcpy(host_key_blob[offset .. offset + algorithm.len], algorithm);
-    offset += algorithm.len;
-
-    // Write public key
-    std.mem.writeInt(u32, host_key_blob[offset..][0..4], @intCast(public_key.len), .big);
-    offset += 4;
-    @memcpy(host_key_blob[offset .. offset + public_key.len], public_key);
-
-    return host_key_blob;
+    return libfast.ssh_hostkey.encode_ed25519_host_key_blob(allocator, public_key);
 }
 
 // ============================================================================
