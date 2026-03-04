@@ -6,7 +6,6 @@ const kex_init = @import("../protocol/kex_init.zig");
 const kex_reply = @import("../protocol/kex_reply.zig");
 const kex_curve25519 = @import("../protocol/kex_curve25519.zig");
 const shared_secrets = @import("shared_secrets.zig");
-const crypto = @import("../crypto/crypto.zig");
 const constants = @import("../common/constants.zig");
 const libfast = @import("libfast");
 
@@ -635,14 +634,14 @@ test "Ed25519 signature round-trip" {
     const test_data = "Hello, Ed25519!";
 
     // Sign
-    const signature = crypto.signature.sign(test_data, &private_key);
+    const signature = try libfast.ssh_signature.sign(test_data, &private_key);
 
     // Verify
-    const valid = crypto.signature.verifyEd25519(test_data, &signature, &public_key);
+    const valid = libfast.ssh_signature.verifyEd25519(test_data, &signature, &public_key);
     try testing.expect(valid);
 
     // Verify with wrong data should fail
-    const wrong_valid = crypto.signature.verifyEd25519("Wrong data", &signature, &public_key);
+    const wrong_valid = libfast.ssh_signature.verifyEd25519("Wrong data", &signature, &public_key);
     try testing.expect(!wrong_valid);
 }
 
