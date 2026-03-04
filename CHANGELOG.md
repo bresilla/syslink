@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.10] - 2026-03-04
+
+### <!-- 0 -->⛰️  Features
+
+- Integrate libfast for SSH crypto operations
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Bump libfast dependency to 0.0.13
+
 ## [0.0.9] - 2026-02-28
 
 ### <!-- 1 -->🐛 Bug Fixes
