@@ -59,3 +59,47 @@ pub fn authenticateClient(
 
     return error.NoIdentityProvided;
 }
+
+test "encodePublicKeyBlob encodes SSH wire strings" {
+    const allocator = std.testing.allocator;
+
+    const algorithm = "ssh-ed25519";
+    const pubkey = [_]u8{ 1, 2, 3, 4, 5, 6 };
+
+    const blob = try encodePublicKeyBlob(allocator, algorithm, &pubkey);
+    defer allocator.free(blob);
+
+    var reader = wire.Reader{ .buffer = blob };
+    const decoded_algorithm = try reader.readString(allocator);
+    defer allocator.free(decoded_algorithm);
+    const decoded_pubkey = try reader.readString(allocator);
+    defer allocator.free(decoded_pubkey);
+
+    try std.testing.expectEqualStrings(algorithm, decoded_algorithm);
+    try std.testing.expectEqualSlices(u8, &pubkey, decoded_pubkey);
+    try std.testing.expectEqual(@as(usize, blob.len), reader.position);
+}
+
+test "encodePublicKeyBlob handles empty public key" {
+    const allocator = std.testing.allocator;
+
+    const blob = try encodePublicKeyBlob(allocator, "ssh-ed25519", "");
+    defer allocator.free(blob);
+
+    var reader = wire.Reader{ .buffer = blob };
+    const decoded_algorithm = try reader.readString(allocator);
+    defer allocator.free(decoded_algorithm);
+    const decoded_pubkey = try reader.readString(allocator);
+    defer allocator.free(decoded_pubkey);
+
+    try std.testing.expectEqualStrings("ssh-ed25519", decoded_algorithm);
+    try std.testing.expectEqual(@as(usize, 0), decoded_pubkey.len);
+}
+
+test "authenticateClient rejects missing identity path" {
+    const allocator = std.testing.allocator;
+
+    var fake_conn: connection.ClientConnection = undefined;
+    const err = authenticateClient(allocator, &fake_conn, "alice", .{}) catch |e| e;
+    try std.testing.expectEqual(error.NoIdentityProvided, err);
+}

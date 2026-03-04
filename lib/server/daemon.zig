@@ -79,3 +79,19 @@ pub fn processAlive(pid: std.posix.pid_t) bool {
     };
     return true;
 }
+
+test "pidFilePath includes uid-specific filename" {
+    const allocator = std.testing.allocator;
+    const uid = std.posix.getuid();
+
+    const path = try pidFilePath(allocator);
+    defer allocator.free(path);
+
+    var expected_tail: [64]u8 = undefined;
+    const tail = try std.fmt.bufPrint(&expected_tail, "liblink-server-{}.pid", .{uid});
+    try std.testing.expect(std.mem.endsWith(u8, path, tail));
+}
+
+test "processAlive returns true for current process" {
+    try std.testing.expect(processAlive(std.posix.getpid()));
+}

@@ -635,3 +635,96 @@ pub const SessionRuntime = struct {
         _ = self.session_modes.fetchRemove(stream_id);
     }
 };
+
+fn appendWireString(list: *std.ArrayList(u8), value: []const u8) !void {
+    var len_bytes: [4]u8 = undefined;
+    std.mem.writeInt(u32, &len_bytes, @intCast(value.len), .big);
+    try list.appendSlice(&len_bytes);
+    try list.appendSlice(value);
+}
+
+test "isValidTermName accepts expected terminal names" {
+    try std.testing.expect(SessionRuntime.isValidTermName("xterm-256color"));
+    try std.testing.expect(SessionRuntime.isValidTermName("screen.tmux"));
+    try std.testing.expect(SessionRuntime.isValidTermName("alacritty_1"));
+}
+
+test "isValidTermName rejects control and shell metacharacters" {
+    try std.testing.expect(!SessionRuntime.isValidTermName("xterm;rm -rf /"));
+    try std.testing.expect(!SessionRuntime.isValidTermName("ansi$"));
+    try std.testing.expect(!SessionRuntime.isValidTermName("term with space"));
+}
+
+test "parseWireStringEnd returns end offset for complete field" {
+    const field = [_]u8{ 0, 0, 0, 3, 'f', 'o', 'o' };
+    const end = SessionRuntime.parseWireStringEnd(&field, 0);
+    try std.testing.expectEqual(@as(?usize, 7), end);
+}
+
+test "parseWireStringEnd returns null for truncated field" {
+    const truncated = [_]u8{ 0, 0, 0, 5, 'a', 'b' };
+    try std.testing.expectEqual(@as(?usize, null), SessionRuntime.parseWireStringEnd(&truncated, 0));
+}
+
+test "nextClientChannelMessageLen handles channel data packet boundaries" {
+    const full = [_]u8{ 94, 0, 0, 0, 3, 1, 2, 3 };
+    try std.testing.expectEqual(@as(?usize, 8), try SessionRuntime.nextClientChannelMessageLen(&full));
+
+    const partial = [_]u8{ 94, 0, 0, 0, 3, 1 };
+    try std.testing.expectEqual(@as(?usize, null), try SessionRuntime.nextClientChannelMessageLen(&partial));
+}
+
+test "nextClientChannelMessageLen parses shell and exec requests" {
+    const allocator = std.testing.allocator;
+
+    var shell_msg = std.ArrayList(u8).init(allocator);
+    defer shell_msg.deinit();
+    try shell_msg.append(98);
+    try appendWireString(&shell_msg, "shell");
+    try shell_msg.append(1);
+    try std.testing.expectEqual(@as(?usize, shell_msg.items.len), try SessionRuntime.nextClientChannelMessageLen(shell_msg.items));
+
+    var exec_msg = std.ArrayList(u8).init(allocator);
+    defer exec_msg.deinit();
+    try exec_msg.append(98);
+    try appendWireString(&exec_msg, "exec");
+    try exec_msg.append(0);
+    try appendWireString(&exec_msg, "echo ok");
+    try std.testing.expectEqual(@as(?usize, exec_msg.items.len), try SessionRuntime.nextClientChannelMessageLen(exec_msg.items));
+}
+
+test "nextClientChannelMessageLen parses pty-req and rejects truncated modes" {
+    const allocator = std.testing.allocator;
+
+    var pty_req = std.ArrayList(u8).init(allocator);
+    defer pty_req.deinit();
+    try pty_req.append(98);
+    try appendWireString(&pty_req, "pty-req");
+    try pty_req.append(1);
+    try appendWireString(&pty_req, "xterm-256color");
+
+    try pty_req.appendSlice(&[_]u8{
+        0,
+        0,
+        0,
+        80,
+        0,
+        0,
+        0,
+        24,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    });
+    try appendWireString(&pty_req, "\x00");
+
+    try std.testing.expectEqual(@as(?usize, pty_req.items.len), try SessionRuntime.nextClientChannelMessageLen(pty_req.items));
+
+    const truncated = pty_req.items[0 .. pty_req.items.len - 1];
+    try std.testing.expectEqual(@as(?usize, null), try SessionRuntime.nextClientChannelMessageLen(truncated));
+}
