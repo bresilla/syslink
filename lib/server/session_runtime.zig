@@ -485,6 +485,33 @@ pub const SessionRuntime = struct {
         return end;
     }
 
+    fn writeAllToPty(p: *pty.Pty, data: []const u8) !void {
+        var written: usize = 0;
+        var stall_count: u32 = 0;
+
+        while (written < data.len) {
+            const chunk_len = p.write(data[written..]) catch |err| {
+                if (err == error.WouldBlock) {
+                    stall_count += 1;
+                    if (stall_count > 4000) return error.PtyWriteStalled;
+                    std.Thread.sleep(250 * std.time.ns_per_us);
+                    continue;
+                }
+                return err;
+            };
+
+            if (chunk_len == 0) {
+                stall_count += 1;
+                if (stall_count > 4000) return error.PtyWriteStalled;
+                std.Thread.sleep(250 * std.time.ns_per_us);
+                continue;
+            }
+
+            written += chunk_len;
+            stall_count = 0;
+        }
+    }
+
     fn bridgeSession(self: *Self, server_conn: *connection.ServerConnection, stream_id: u64) !void {
         const session = self.active_shells.get(stream_id) orelse return error.NoPtyForSession;
         const p = session.pty;
@@ -550,7 +577,10 @@ pub const SessionRuntime = struct {
                         94 => {
                             var channel_data = channel_protocol.ChannelData.decode(self.allocator, msg) catch continue;
                             defer channel_data.deinit(self.allocator);
-                            _ = p.write(channel_data.data) catch {
+                            // The PTY master is non-blocking for reads, which means
+                            // writes can also short-write under pressure. Drop-free
+                            // input handling matters for TUI escape sequences.
+                            Self.writeAllToPty(p, channel_data.data) catch {
                                 exit_reason = "pty write failed";
                                 break :bridge;
                             };

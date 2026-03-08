@@ -1,7 +1,5 @@
 const std = @import("std");
 const liblink = @import("liblink");
-const builtin = @import("builtin");
-
 const c = @cImport({
     @cInclude("errno.h");
     @cInclude("signal.h");
@@ -13,6 +11,10 @@ const c = @cImport({
 });
 
 const VERSION = "0.0.4";
+
+pub const std_options: std.Options = .{
+    .log_level = .err,
+};
 
 // Global flag for signal handling
 var should_exit = std.atomic.Value(bool).init(false);
@@ -643,9 +645,42 @@ fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
     // Get terminal size
     const term_size = try getTerminalSize();
 
-    var session = conn.requestShell(term_size.cols, term_size.rows) catch |err| {
-        std.debug.print("✗ Failed to start shell: {}\n", .{err});
-        std.process.exit(1);
+    const term_env = std.process.getEnvVarOwned(allocator, "TERM") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    defer if (term_env) |term| allocator.free(term);
+    const term_name = if (term_env) |term|
+        if (term.len > 0) term else "xterm-256color"
+    else
+        "xterm-256color";
+
+    var session = blk: {
+        var opened = conn.openSession() catch |err| {
+            std.debug.print("✗ Failed to open session: {}\n", .{err});
+            std.process.exit(1);
+        };
+        errdefer {
+            opened.sendEof() catch {};
+            opened.close() catch {};
+        }
+
+        opened.waitForConfirmation() catch |err| {
+            std.debug.print("✗ Session open failed: {}\n", .{err});
+            std.process.exit(1);
+        };
+
+        opened.requestPty(term_name, term_size.cols, term_size.rows, 0, 0) catch |err| {
+            std.debug.print("✗ Failed to request PTY: {}\n", .{err});
+            std.process.exit(1);
+        };
+
+        opened.requestShell() catch |err| {
+            std.debug.print("✗ Failed to start shell: {}\n", .{err});
+            std.process.exit(1);
+        };
+
+        break :blk opened;
     };
     defer {
         session.sendEof() catch {};
