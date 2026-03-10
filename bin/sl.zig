@@ -1,7 +1,5 @@
 const std = @import("std");
 const liblink = @import("liblink");
-const builtin = @import("builtin");
-
 const c = @cImport({
     @cInclude("errno.h");
     @cInclude("signal.h");
@@ -13,6 +11,10 @@ const c = @cImport({
 });
 
 const VERSION = "0.0.4";
+
+pub const std_options: std.Options = .{
+    .log_level = .err,
+};
 
 // Global flag for signal handling
 var should_exit = std.atomic.Value(bool).init(false);
@@ -563,6 +565,20 @@ fn connectClientWithHostTrust(
     return liblink.connection.connectClientTrusted(allocator, hostname, port, random, policy);
 }
 
+fn forwardSessionEnv(allocator: std.mem.Allocator, session: *liblink.channels.SessionChannel, name: []const u8) !void {
+    const value = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return,
+        else => return err,
+    };
+    defer allocator.free(value);
+
+    if (value.len == 0) return;
+
+    session.requestEnv(name, value) catch |err| {
+        std.log.debug("Ignoring env forwarding failure for {s}: {}", .{ name, err });
+    };
+}
+
 fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len < 1) {
         std.debug.print("Error: Host required\n", .{});
@@ -643,9 +659,47 @@ fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
     // Get terminal size
     const term_size = try getTerminalSize();
 
-    var session = conn.requestShell(term_size.cols, term_size.rows) catch |err| {
-        std.debug.print("✗ Failed to start shell: {}\n", .{err});
-        std.process.exit(1);
+    const term_env = std.process.getEnvVarOwned(allocator, "TERM") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    defer if (term_env) |term| allocator.free(term);
+    const term_name = if (term_env) |term|
+        if (term.len > 0) term else "xterm-256color"
+    else
+        "xterm-256color";
+
+    var session = blk: {
+        var opened = conn.openSession() catch |err| {
+            std.debug.print("✗ Failed to open session: {}\n", .{err});
+            std.process.exit(1);
+        };
+        errdefer {
+            opened.sendEof() catch {};
+            opened.close() catch {};
+        }
+
+        opened.waitForConfirmation() catch |err| {
+            std.debug.print("✗ Session open failed: {}\n", .{err});
+            std.process.exit(1);
+        };
+
+        opened.requestPty(term_name, term_size.cols, term_size.rows, 0, 0) catch |err| {
+            std.debug.print("✗ Failed to request PTY: {}\n", .{err});
+            std.process.exit(1);
+        };
+
+        try forwardSessionEnv(allocator, &opened, "LANG");
+        try forwardSessionEnv(allocator, &opened, "LC_ALL");
+        try forwardSessionEnv(allocator, &opened, "LC_CTYPE");
+        try forwardSessionEnv(allocator, &opened, "COLORTERM");
+
+        opened.requestShell() catch |err| {
+            std.debug.print("✗ Failed to start shell: {}\n", .{err});
+            std.process.exit(1);
+        };
+
+        break :blk opened;
     };
     defer {
         session.sendEof() catch {};
@@ -762,6 +816,9 @@ fn runShellInteractive(allocator: std.mem.Allocator, session: *liblink.channels.
         out_batch.clearRetainingCapacity();
         var drained: u16 = 0;
         while (drained < 128) : (drained += 1) {
+            if (drained > 0 and (drained % 8) == 0) {
+                session.manager.transport.poll(0) catch {};
+            }
             if (session.receiveData()) |data| {
                 defer session.manager.allocator.free(data);
                 try out_batch.appendSlice(allocator, data);

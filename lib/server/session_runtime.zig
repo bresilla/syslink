@@ -28,6 +28,50 @@ const PtyRequestInfo = struct {
     }
 };
 
+const SessionEnvInfo = struct {
+    lang: ?[]u8 = null,
+    lc_all: ?[]u8 = null,
+    lc_ctype: ?[]u8 = null,
+    colorterm: ?[]u8 = null,
+    allocator: std.mem.Allocator,
+
+    fn deinit(self: *SessionEnvInfo) void {
+        if (self.lang) |value| self.allocator.free(value);
+        if (self.lc_all) |value| self.allocator.free(value);
+        if (self.lc_ctype) |value| self.allocator.free(value);
+        if (self.colorterm) |value| self.allocator.free(value);
+    }
+
+    fn set(self: *SessionEnvInfo, name: []const u8, value: []const u8) !void {
+        const copy = try self.allocator.dupe(u8, value);
+        errdefer self.allocator.free(copy);
+
+        if (std.mem.eql(u8, name, "LANG")) {
+            if (self.lang) |old| self.allocator.free(old);
+            self.lang = copy;
+            return;
+        }
+        if (std.mem.eql(u8, name, "LC_ALL")) {
+            if (self.lc_all) |old| self.allocator.free(old);
+            self.lc_all = copy;
+            return;
+        }
+        if (std.mem.eql(u8, name, "LC_CTYPE")) {
+            if (self.lc_ctype) |old| self.allocator.free(old);
+            self.lc_ctype = copy;
+            return;
+        }
+        if (std.mem.eql(u8, name, "COLORTERM")) {
+            if (self.colorterm) |old| self.allocator.free(old);
+            self.colorterm = copy;
+            return;
+        }
+
+        self.allocator.free(copy);
+        return error.UnsupportedEnvironmentVariable;
+    }
+};
+
 const PtySession = struct {
     pty: *pty.Pty,
     pid: std.posix.pid_t,
@@ -67,6 +111,7 @@ pub const SessionRuntime = struct {
     active_exec: std.AutoHashMap(u64, []u8),
     session_modes: std.AutoHashMap(u64, SessionMode),
     pty_requests: std.AutoHashMap(u64, PtyRequestInfo),
+    session_env: std.AutoHashMap(u64, SessionEnvInfo),
 
     const Self = @This();
 
@@ -78,6 +123,7 @@ pub const SessionRuntime = struct {
             .active_exec = std.AutoHashMap(u64, []u8).init(allocator),
             .session_modes = std.AutoHashMap(u64, SessionMode).init(allocator),
             .pty_requests = std.AutoHashMap(u64, PtyRequestInfo).init(allocator),
+            .session_env = std.AutoHashMap(u64, SessionEnvInfo).init(allocator),
         };
     }
 
@@ -101,6 +147,13 @@ pub const SessionRuntime = struct {
             info.deinit();
         }
         self.pty_requests.deinit();
+
+        var env_it = self.session_env.iterator();
+        while (env_it.next()) |entry| {
+            var info = entry.value_ptr.*;
+            info.deinit();
+        }
+        self.session_env.deinit();
 
         self.session_modes.deinit();
         self.allocator.free(self.authenticated_user);
@@ -171,6 +224,11 @@ pub const SessionRuntime = struct {
 
         if (std.mem.eql(u8, req.request_type, "pty-req")) {
             self.handlePtyRequest(stream_id, req.type_specific_data) catch |err| {
+                if (want_reply) server_conn.channel_manager.sendFailure(stream_id) catch {};
+                return err;
+            };
+        } else if (std.mem.eql(u8, req.request_type, "env")) {
+            self.handleEnvRequest(stream_id, req.type_specific_data) catch |err| {
                 if (want_reply) server_conn.channel_manager.sendFailure(stream_id) catch {};
                 return err;
             };
@@ -245,6 +303,24 @@ pub const SessionRuntime = struct {
         try self.pty_requests.put(stream_id, info);
     }
 
+    fn handleEnvRequest(self: *Self, stream_id: u64, type_specific_data: []const u8) !void {
+        var reader = wire.Reader{ .buffer = type_specific_data };
+        const name = try reader.readString(self.allocator);
+        defer self.allocator.free(name);
+        const value = try reader.readString(self.allocator);
+        defer self.allocator.free(value);
+
+        if (!isAllowedEnvName(name) or !isValidEnvValue(value)) {
+            return error.UnsupportedEnvironmentVariable;
+        }
+
+        var entry = try self.session_env.getOrPut(stream_id);
+        if (!entry.found_existing) {
+            entry.value_ptr.* = .{ .allocator = self.allocator };
+        }
+        try entry.value_ptr.set(name, value);
+    }
+
     fn handleShellRequest(self: *Self, stream_id: u64) !void {
         const pty_info = self.pty_requests.get(stream_id);
 
@@ -263,13 +339,27 @@ pub const SessionRuntime = struct {
         defer account.deinit();
 
         var term_buf: [256]u8 = undefined;
+        var lang_buf: [128]u8 = undefined;
+        var lc_all_buf: [128]u8 = undefined;
+        var lc_ctype_buf: [128]u8 = undefined;
+        var colorterm_buf: [64]u8 = undefined;
         var term_ptr: [*:0]const u8 = "xterm-256color";
+        var lang_ptr: ?[*:0]const u8 = null;
+        var lc_all_ptr: ?[*:0]const u8 = null;
+        var lc_ctype_ptr: ?[*:0]const u8 = null;
+        var colorterm_ptr: ?[*:0]const u8 = null;
         if (pty_info) |info| {
             if (info.term.len > 0 and info.term.len < term_buf.len - 1 and isValidTermName(info.term)) {
                 @memcpy(term_buf[0..info.term.len], info.term);
                 term_buf[info.term.len] = 0;
                 term_ptr = @ptrCast(term_buf[0..info.term.len :0]);
             }
+        }
+        if (self.session_env.get(stream_id)) |env_info| {
+            lang_ptr = makeZString(&lang_buf, env_info.lang);
+            lc_all_ptr = makeZString(&lc_all_buf, env_info.lc_all);
+            lc_ctype_ptr = makeZString(&lc_ctype_buf, env_info.lc_ctype);
+            colorterm_ptr = makeZString(&colorterm_buf, env_info.colorterm);
         }
 
         const shell_env = pty.ShellEnv{
@@ -278,8 +368,13 @@ pub const SessionRuntime = struct {
             .shell = account.shell_z.ptr,
             .user = account.username_z.ptr,
             .logname = account.username_z.ptr,
+            .lang = lang_ptr,
+            .lc_all = lc_all_ptr,
+            .lc_ctype = lc_ctype_ptr,
+            .colorterm = colorterm_ptr,
             .uid = account.uid,
             .gid = account.gid,
+            .modes = if (pty_info) |info| info.modes else null,
         };
 
         const pid = try pty.spawnShell(p, shell_env);
@@ -360,6 +455,14 @@ pub const SessionRuntime = struct {
         try sendExitStatus(server_conn, stream_id, exit_code);
         server_conn.channel_manager.sendEof(stream_id) catch {};
         server_conn.channel_manager.closeChannel(stream_id) catch {};
+        if (self.session_env.fetchRemove(stream_id)) |entry| {
+            var info = entry.value;
+            info.deinit();
+        }
+        if (self.pty_requests.fetchRemove(stream_id)) |entry| {
+            var info = entry.value;
+            info.deinit();
+        }
         _ = self.session_modes.fetchRemove(stream_id);
     }
 
@@ -406,6 +509,14 @@ pub const SessionRuntime = struct {
 
         server_conn.channel_manager.sendEof(stream_id) catch {};
         server_conn.channel_manager.closeChannel(stream_id) catch {};
+        if (self.session_env.fetchRemove(stream_id)) |entry| {
+            var info = entry.value;
+            info.deinit();
+        }
+        if (self.pty_requests.fetchRemove(stream_id)) |entry| {
+            var info = entry.value;
+            info.deinit();
+        }
         _ = self.session_modes.fetchRemove(stream_id);
     }
 
@@ -416,6 +527,33 @@ pub const SessionRuntime = struct {
             }
         }
         return true;
+    }
+
+    fn isAllowedEnvName(name: []const u8) bool {
+        return std.mem.eql(u8, name, "LANG") or
+            std.mem.eql(u8, name, "LC_ALL") or
+            std.mem.eql(u8, name, "LC_CTYPE") or
+            std.mem.eql(u8, name, "COLORTERM");
+    }
+
+    fn isValidEnvValue(value: []const u8) bool {
+        if (value.len == 0 or value.len > 96) return false;
+
+        for (value) |ch| {
+            if (ch == 0) return false;
+            if (ch < 0x20 or ch == 0x7f) return false;
+        }
+
+        return true;
+    }
+
+    fn makeZString(buffer: []u8, value: ?[]const u8) ?[*:0]const u8 {
+        const slice = value orelse return null;
+        if (slice.len == 0 or slice.len >= buffer.len) return null;
+
+        @memcpy(buffer[0..slice.len], slice);
+        buffer[slice.len] = 0;
+        return @ptrCast(buffer[0..slice.len :0]);
     }
 
     fn nextClientChannelMessageLen(buffer: []const u8) !?usize {
@@ -485,6 +623,44 @@ pub const SessionRuntime = struct {
         return end;
     }
 
+    fn writeAllToPty(p: *pty.Pty, data: []const u8) !void {
+        var written: usize = 0;
+        var stall_count: u32 = 0;
+
+        while (written < data.len) {
+            const chunk_len = p.write(data[written..]) catch |err| {
+                if (err == error.WouldBlock) {
+                    stall_count += 1;
+                    if (stall_count > 4000) return error.PtyWriteStalled;
+                    std.Thread.sleep(250 * std.time.ns_per_us);
+                    continue;
+                }
+                return err;
+            };
+
+            if (chunk_len == 0) {
+                stall_count += 1;
+                if (stall_count > 4000) return error.PtyWriteStalled;
+                std.Thread.sleep(250 * std.time.ns_per_us);
+                continue;
+            }
+
+            written += chunk_len;
+            stall_count = 0;
+        }
+    }
+
+    fn sendPtyOutput(server_conn: *connection.ServerConnection, stream_id: u64, data: []const u8) !void {
+        const max_chunk_len = 900;
+        var offset: usize = 0;
+
+        while (offset < data.len) {
+            const end = @min(offset + max_chunk_len, data.len);
+            try server_conn.channel_manager.sendData(stream_id, data[offset..end]);
+            offset = end;
+        }
+    }
+
     fn bridgeSession(self: *Self, server_conn: *connection.ServerConnection, stream_id: u64) !void {
         const session = self.active_shells.get(stream_id) orelse return error.NoPtyForSession;
         const p = session.pty;
@@ -550,7 +726,10 @@ pub const SessionRuntime = struct {
                         94 => {
                             var channel_data = channel_protocol.ChannelData.decode(self.allocator, msg) catch continue;
                             defer channel_data.deinit(self.allocator);
-                            _ = p.write(channel_data.data) catch {
+                            // The PTY master is non-blocking for reads, which means
+                            // writes can also short-write under pressure. Drop-free
+                            // input handling matters for TUI escape sequences.
+                            Self.writeAllToPty(p, channel_data.data) catch {
                                 exit_reason = "pty write failed";
                                 break :bridge;
                             };
@@ -611,7 +790,7 @@ pub const SessionRuntime = struct {
 
             // Send PTY output to client. If the client is dead, the QUIC
             // send window fills up and this returns ConnectionStalled after ~30s.
-            server_conn.channel_manager.sendData(stream_id, pty_buffer[0..pty_len]) catch {
+            sendPtyOutput(server_conn, stream_id, pty_buffer[0..pty_len]) catch {
                 exit_reason = "send to client failed (client likely disconnected)";
                 break;
             };
@@ -628,6 +807,11 @@ pub const SessionRuntime = struct {
         }
 
         if (self.pty_requests.fetchRemove(stream_id)) |entry| {
+            var info = entry.value;
+            info.deinit();
+        }
+
+        if (self.session_env.fetchRemove(stream_id)) |entry| {
             var info = entry.value;
             info.deinit();
         }
@@ -653,6 +837,21 @@ test "isValidTermName rejects control and shell metacharacters" {
     try std.testing.expect(!SessionRuntime.isValidTermName("xterm;rm -rf /"));
     try std.testing.expect(!SessionRuntime.isValidTermName("ansi$"));
     try std.testing.expect(!SessionRuntime.isValidTermName("term with space"));
+}
+
+test "session env validation whitelists terminal-safe variables" {
+    try std.testing.expect(SessionRuntime.isAllowedEnvName("LANG"));
+    try std.testing.expect(SessionRuntime.isAllowedEnvName("LC_ALL"));
+    try std.testing.expect(SessionRuntime.isAllowedEnvName("LC_CTYPE"));
+    try std.testing.expect(SessionRuntime.isAllowedEnvName("COLORTERM"));
+    try std.testing.expect(!SessionRuntime.isAllowedEnvName("LD_PRELOAD"));
+}
+
+test "session env validation rejects control bytes and empty values" {
+    try std.testing.expect(SessionRuntime.isValidEnvValue("en_US.UTF-8"));
+    try std.testing.expect(SessionRuntime.isValidEnvValue("truecolor"));
+    try std.testing.expect(!SessionRuntime.isValidEnvValue(""));
+    try std.testing.expect(!SessionRuntime.isValidEnvValue("bad\nvalue"));
 }
 
 test "parseWireStringEnd returns end offset for complete field" {
@@ -691,6 +890,20 @@ test "nextClientChannelMessageLen parses shell and exec requests" {
     try exec_msg.append(0);
     try appendWireString(&exec_msg, "echo ok");
     try std.testing.expectEqual(@as(?usize, exec_msg.items.len), try SessionRuntime.nextClientChannelMessageLen(exec_msg.items));
+}
+
+test "nextClientChannelMessageLen parses env requests" {
+    const allocator = std.testing.allocator;
+
+    var env_msg = std.ArrayList(u8).init(allocator);
+    defer env_msg.deinit();
+    try env_msg.append(98);
+    try appendWireString(&env_msg, "env");
+    try env_msg.append(1);
+    try appendWireString(&env_msg, "LANG");
+    try appendWireString(&env_msg, "en_US.UTF-8");
+
+    try std.testing.expectEqual(@as(?usize, env_msg.items.len), try SessionRuntime.nextClientChannelMessageLen(env_msg.items));
 }
 
 test "nextClientChannelMessageLen parses pty-req and rejects truncated modes" {

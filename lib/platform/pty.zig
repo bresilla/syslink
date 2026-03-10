@@ -1,6 +1,7 @@
 const std = @import("std");
 const posix = std.posix;
 const user = @import("user.zig");
+const ttymodes = @import("../protocol/ttymodes.zig");
 
 // External C functions for PTY
 extern "c" fn grantpt(fd: c_int) c_int;
@@ -90,8 +91,13 @@ pub const ShellEnv = struct {
     shell: [*:0]const u8,
     user: [*:0]const u8,
     logname: [*:0]const u8,
+    lang: ?[*:0]const u8 = null,
+    lc_all: ?[*:0]const u8 = null,
+    lc_ctype: ?[*:0]const u8 = null,
+    colorterm: ?[*:0]const u8 = null,
     uid: ?std.posix.uid_t = null,
     gid: ?std.posix.gid_t = null,
+    modes: ?[]const u8 = null,
 };
 
 /// Spawn a shell in a PTY
@@ -156,6 +162,10 @@ fn childSetup(pty: *Pty, env: ShellEnv) !void {
     // Close master fd (child doesn't need it)
     posix.close(pty.master_fd);
 
+    if (env.modes) |modes| {
+        ttymodes.applyTerminalModes(slave_fd, modes) catch {};
+    }
+
     // Apply user identity (setuid/setgid) — must happen after PTY setup
     // but before exec. If the server isn't running as root, initgroups
     // will fail; skip silently since the shell works as the current user.
@@ -170,6 +180,10 @@ fn childSetup(pty: *Pty, env: ShellEnv) !void {
     _ = setenv("USER", env.user, 1);
     _ = setenv("LOGNAME", env.logname, 1);
     _ = setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
+    if (env.lang) |lang| _ = setenv("LANG", lang, 1);
+    if (env.lc_all) |lc_all| _ = setenv("LC_ALL", lc_all, 1);
+    if (env.lc_ctype) |lc_ctype| _ = setenv("LC_CTYPE", lc_ctype, 1);
+    if (env.colorterm) |colorterm| _ = setenv("COLORTERM", colorterm, 1);
 
     // SSH runs a LOGIN shell for PTY sessions (argv[0] starts with '-')
     // This is shell-agnostic - works for bash, zsh, fish, etc.

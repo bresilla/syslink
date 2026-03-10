@@ -37,35 +37,31 @@ pub const SessionChannel = struct {
     ///
     /// Reads the CHANNEL_OPEN_CONFIRMATION message.
     pub fn waitForConfirmation(self: *Self) !void {
-        var buffer: [4096]u8 = undefined;
-
         // Poll multiple times until we receive the confirmation
         var attempts: u32 = 0;
         while (attempts < 300) : (attempts += 1) {
             // Poll to receive packets
             self.manager.transport.poll(100) catch {}; // 100ms timeout
 
-            // Try to read from stream
-            const len = self.manager.transport.receiveFromStream(self.stream_id, &buffer) catch 0;
+            const message = self.manager.receiveMessage(self.stream_id) catch |err| switch (err) {
+                error.NoData, error.EndOfBuffer => continue,
+                else => return err,
+            };
+            defer self.manager.allocator.free(message);
 
-            if (len > 0) {
-                const data = buffer[0..len];
-                const msg_type = data[0];
-
-                switch (msg_type) {
-                    91 => { // SSH_MSG_CHANNEL_OPEN_CONFIRMATION
-                        try self.manager.handleOpenConfirmation(self.stream_id, data);
-                        return;
-                    },
-                    92 => { // SSH_MSG_CHANNEL_OPEN_FAILURE
-                        try self.manager.handleOpenFailure(self.stream_id, data);
-                        return error.ChannelOpenFailed;
-                    },
-                    else => {
-                        std.log.err("Unexpected message type: {}", .{msg_type});
-                        return error.UnexpectedMessageType;
-                    },
-                }
+            switch (message[0]) {
+                91 => { // SSH_MSG_CHANNEL_OPEN_CONFIRMATION
+                    try self.manager.handleOpenConfirmation(self.stream_id, message);
+                    return;
+                },
+                92 => { // SSH_MSG_CHANNEL_OPEN_FAILURE
+                    try self.manager.handleOpenFailure(self.stream_id, message);
+                    return error.ChannelOpenFailed;
+                },
+                else => {
+                    std.log.err("Unexpected message type: {}", .{message[0]});
+                    return error.UnexpectedMessageType;
+                },
             }
         }
 
@@ -102,6 +98,15 @@ pub const SessionChannel = struct {
         try self.manager.sendRequest(self.stream_id, "pty-req", true, pty_data);
 
         // Wait for success/failure
+        try self.waitForRequestResponse();
+    }
+
+    /// Send an environment variable request for the session.
+    pub fn requestEnv(self: *Self, name: []const u8, value: []const u8) !void {
+        const env_data = try encodeEnvRequest(self.allocator, name, value);
+        defer self.allocator.free(env_data);
+
+        try self.manager.sendRequest(self.stream_id, "env", true, env_data);
         try self.waitForRequestResponse();
     }
 
@@ -167,35 +172,31 @@ pub const SessionChannel = struct {
 
     /// Wait for request response (success or failure)
     fn waitForRequestResponse(self: *Self) !void {
-        var buffer: [4096]u8 = undefined;
-
         // Poll multiple times until we receive data
         var attempts: u32 = 0;
         while (attempts < 100) : (attempts += 1) {
             // Poll to receive packets
             self.manager.transport.poll(100) catch {}; // 100ms timeout
 
-            // Try to read from stream
-            const len = self.manager.transport.receiveFromStream(self.stream_id, &buffer) catch 0;
+            const message = self.manager.receiveMessage(self.stream_id) catch |err| switch (err) {
+                error.NoData, error.EndOfBuffer => continue,
+                else => return err,
+            };
+            defer self.manager.allocator.free(message);
 
-            if (len > 0) {
-                const data = buffer[0..len];
-                const msg_type = data[0];
-
-                switch (msg_type) {
-                    99 => { // SSH_MSG_CHANNEL_SUCCESS
-                        std.log.info("Channel request succeeded", .{});
-                        return;
-                    },
-                    100 => { // SSH_MSG_CHANNEL_FAILURE
-                        std.log.err("Channel request failed", .{});
-                        return error.ChannelRequestFailed;
-                    },
-                    else => {
-                        std.log.err("Unexpected message type: {}", .{msg_type});
-                        return error.UnexpectedMessageType;
-                    },
-                }
+            switch (message[0]) {
+                99 => { // SSH_MSG_CHANNEL_SUCCESS
+                    std.log.info("Channel request succeeded", .{});
+                    return;
+                },
+                100 => { // SSH_MSG_CHANNEL_FAILURE
+                    std.log.err("Channel request failed", .{});
+                    return error.ChannelRequestFailed;
+                },
+                else => {
+                    std.log.err("Unexpected message type: {}", .{message[0]});
+                    return error.UnexpectedMessageType;
+                },
             }
         }
 
@@ -285,6 +286,18 @@ fn encodeSubsystemRequest(allocator: Allocator, subsystem_name: []const u8) ![]u
 
     var writer = wire.Writer{ .buffer = buffer };
     try writer.writeString(subsystem_name);
+
+    return buffer;
+}
+
+fn encodeEnvRequest(allocator: Allocator, name: []const u8, value: []const u8) ![]u8 {
+    const size = 4 + name.len + 4 + value.len;
+    const buffer = try allocator.alloc(u8, size);
+    errdefer allocator.free(buffer);
+
+    var writer = wire.Writer{ .buffer = buffer };
+    try writer.writeString(name);
+    try writer.writeString(value);
 
     return buffer;
 }
@@ -691,4 +704,20 @@ test "encodeSubsystemRequest - format" {
 
     const subsys_name = subsys_data[4..];
     try testing.expectEqualStrings("sftp", subsys_name);
+}
+
+test "encodeEnvRequest - format" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    const env_data = try encodeEnvRequest(allocator, "LANG", "en_US.UTF-8");
+    defer allocator.free(env_data);
+
+    const name_len = std.mem.readInt(u32, env_data[0..4], .big);
+    try testing.expectEqual(@as(u32, 4), name_len);
+    try testing.expectEqualStrings("LANG", env_data[4..8]);
+
+    const value_len = std.mem.readInt(u32, env_data[8..12], .big);
+    try testing.expectEqual(@as(u32, "en_US.UTF-8".len), value_len);
+    try testing.expectEqualStrings("en_US.UTF-8", env_data[12..]);
 }

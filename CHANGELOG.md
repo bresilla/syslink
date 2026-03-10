@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.12] - 2026-03-10
+
+### <!-- 0 -->⛰️  Features
+
+- Improve PTY handling and shell session establishment
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Apply and encode PTY modes
+
 ## [0.0.11] - 2026-03-04
 
 ### <!-- 2 -->🚜 Refactor
