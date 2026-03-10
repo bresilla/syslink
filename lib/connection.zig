@@ -67,6 +67,15 @@ pub const ServerConfig = struct {
     random: std.Random,
 };
 
+fn sockaddrStorageFromAddress(address: *const std.net.Address) std.posix.sockaddr.storage {
+    var storage = std.mem.zeroes(std.posix.sockaddr.storage);
+    const len = address.getOsSockLen();
+    const dst: [*]u8 = @ptrCast(&storage);
+    const src: [*]const u8 = @ptrCast(&address.any);
+    @memcpy(dst[0..len], src[0..len]);
+    return storage;
+}
+
 /// Active SSH/QUIC client connection
 pub const ClientConnection = struct {
     allocator: Allocator,
@@ -128,9 +137,7 @@ pub const ClientConnection = struct {
         const remote_conn_id = secrets.server_connection_id;
 
         // Prepare server address for client to send packets to
-        var server_storage: std.posix.sockaddr.storage = undefined;
-        const server_sockaddr_ptr: *const std.posix.sockaddr = @ptrCast(&udp_transport.socket.address.any);
-        @memcpy(std.mem.asBytes(&server_storage)[0..@sizeOf(std.posix.sockaddr)], std.mem.asBytes(server_sockaddr_ptr));
+        const server_storage = sockaddrStorageFromAddress(&udp_transport.socket.address);
 
         const transport = try allocator.create(quic_transport.QuicTransport);
         errdefer allocator.destroy(transport);
@@ -729,9 +736,7 @@ pub const ConnectionListener = struct {
         try std.posix.connect(conn_socket, &init_result.client_address.any, init_result.client_address.getOsSockLen());
 
         // Prepare client address for server transport (convert Address to sockaddr.storage)
-        var client_storage: std.posix.sockaddr.storage = undefined;
-        const client_sockaddr_ptr: *const std.posix.sockaddr = @ptrCast(&init_result.client_address.any);
-        @memcpy(std.mem.asBytes(&client_storage)[0..@sizeOf(std.posix.sockaddr)], std.mem.asBytes(client_sockaddr_ptr));
+        const client_storage = sockaddrStorageFromAddress(&init_result.client_address);
 
         var transport = try quic_transport.QuicTransport.init(
             self.allocator,
@@ -890,6 +895,26 @@ test "ServerConfig - initialization" {
 
     try testing.expectEqual(@as(u16, 22), config.listen_port);
     try testing.expectEqualStrings("0.0.0.0", config.listen_address);
+}
+
+test "sockaddrStorageFromAddress preserves IPv4 addresses" {
+    const testing = std.testing;
+
+    const address = try std.net.Address.parseIp4("127.0.0.1", 2222);
+    const storage = sockaddrStorageFromAddress(&address);
+    const roundtrip = std.net.Address.initPosix(@ptrCast(&storage));
+
+    try testing.expect(std.net.Address.eql(address, roundtrip));
+}
+
+test "sockaddrStorageFromAddress preserves IPv6 addresses" {
+    const testing = std.testing;
+
+    const address = try std.net.Address.parseIp6("2001:db8::1", 2222);
+    const storage = sockaddrStorageFromAddress(&address);
+    const roundtrip = std.net.Address.initPosix(@ptrCast(&storage));
+
+    try testing.expect(std.net.Address.eql(address, roundtrip));
 }
 
 // Test helper: public key validator
