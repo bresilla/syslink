@@ -258,31 +258,11 @@ pub const ChannelManager = struct {
     /// Reads and decodes CHANNEL_DATA message from stream.
     /// Returns the payload data. Caller owns the memory.
     pub fn receiveData(self: *Self, stream_id: u64) ![]u8 {
-        const pending = try self.getPendingBuffer(stream_id);
-        var read_buffer: [8192]u8 = undefined;
-        var reads: u8 = 0;
+        while (true) {
+            const msg = try self.receiveMessage(stream_id);
+            defer self.allocator.free(msg);
 
-        while (reads < 8) : (reads += 1) {
-            const len = self.transport.receiveFromStream(stream_id, &read_buffer) catch |err| {
-                if (err == error.NoData) break;
-                if (err == error.StreamClosed or err == error.StreamNotFound) return error.StreamClosed;
-                return err;
-            };
-            if (len == 0) break;
-            try pending.appendSlice(self.allocator, read_buffer[0..len]);
-        }
-
-        while (try nextChannelMessageLen(pending.items)) |msg_len| {
-            const msg = pending.items[0..msg_len];
-            const msg_type = msg[0];
-
-            const remaining = pending.items.len - msg_len;
-            if (remaining > 0) {
-                std.mem.copyForwards(u8, pending.items[0..remaining], pending.items[msg_len..]);
-            }
-            pending.items.len = remaining;
-
-            switch (msg_type) {
+            switch (msg[0]) {
                 94 => {
                     const data_msg = try channel_protocol.ChannelData.decode(self.allocator, msg);
                     return @constCast(data_msg.data);
@@ -296,9 +276,46 @@ pub const ChannelManager = struct {
                 else => continue,
             }
         }
+    }
 
-        if (pending.items.len > 0) return error.EndOfBuffer;
-        return error.NoData;
+    /// Receive the next complete channel message from a stream.
+    ///
+    /// The returned message is the full SSH/QUIC channel packet and must be freed
+    /// by the caller with this manager's allocator.
+    pub fn receiveMessage(self: *Self, stream_id: u64) ![]u8 {
+        const pending = try self.getPendingBuffer(stream_id);
+        var read_buffer: [8192]u8 = undefined;
+        var reads: u8 = 0;
+        var stream_closed = false;
+
+        while (reads < 8) : (reads += 1) {
+            const len = self.transport.receiveFromStream(stream_id, &read_buffer) catch |err| {
+                if (err == error.NoData) break;
+                if (err == error.StreamClosed or err == error.StreamNotFound) {
+                    stream_closed = true;
+                    break;
+                }
+                return err;
+            };
+            if (len == 0) break;
+            try pending.appendSlice(self.allocator, read_buffer[0..len]);
+        }
+
+        const msg_len = (try nextChannelMessageLen(pending.items)) orelse {
+            if (pending.items.len > 0) return error.EndOfBuffer;
+            if (stream_closed) return error.StreamClosed;
+            return error.NoData;
+        };
+        const msg = pending.items[0..msg_len];
+        const owned = try self.allocator.dupe(u8, msg);
+
+        const remaining = pending.items.len - msg_len;
+        if (remaining > 0) {
+            std.mem.copyForwards(u8, pending.items[0..remaining], pending.items[msg_len..]);
+        }
+        pending.items.len = remaining;
+
+        return owned;
     }
 
     /// Send EOF on channel

@@ -565,6 +565,20 @@ fn connectClientWithHostTrust(
     return liblink.connection.connectClientTrusted(allocator, hostname, port, random, policy);
 }
 
+fn forwardSessionEnv(allocator: std.mem.Allocator, session: *liblink.channels.SessionChannel, name: []const u8) !void {
+    const value = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return,
+        else => return err,
+    };
+    defer allocator.free(value);
+
+    if (value.len == 0) return;
+
+    session.requestEnv(name, value) catch |err| {
+        std.log.debug("Ignoring env forwarding failure for {s}: {}", .{ name, err });
+    };
+}
+
 fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len < 1) {
         std.debug.print("Error: Host required\n", .{});
@@ -674,6 +688,11 @@ fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
             std.debug.print("✗ Failed to request PTY: {}\n", .{err});
             std.process.exit(1);
         };
+
+        try forwardSessionEnv(allocator, &opened, "LANG");
+        try forwardSessionEnv(allocator, &opened, "LC_ALL");
+        try forwardSessionEnv(allocator, &opened, "LC_CTYPE");
+        try forwardSessionEnv(allocator, &opened, "COLORTERM");
 
         opened.requestShell() catch |err| {
             std.debug.print("✗ Failed to start shell: {}\n", .{err});
@@ -797,6 +816,9 @@ fn runShellInteractive(allocator: std.mem.Allocator, session: *liblink.channels.
         out_batch.clearRetainingCapacity();
         var drained: u16 = 0;
         while (drained < 128) : (drained += 1) {
+            if (drained > 0 and (drained % 8) == 0) {
+                session.manager.transport.poll(0) catch {};
+            }
             if (session.receiveData()) |data| {
                 defer session.manager.allocator.free(data);
                 try out_batch.appendSlice(allocator, data);

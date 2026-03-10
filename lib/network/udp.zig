@@ -7,7 +7,6 @@ const Address = std.net.Address;
 ///
 /// Per SPEC.md: SSH_QUIC_INIT and SSH_QUIC_REPLY are exchanged as UDP datagrams
 /// before QUIC connection is established.
-
 pub const UdpSocket = struct {
     socket: std.posix.socket_t,
     address: Address,
@@ -15,6 +14,7 @@ pub const UdpSocket = struct {
     is_server: bool,
 
     const Self = @This();
+    const socket_buffer_bytes: u32 = 4 * 1024 * 1024;
 
     /// Create and bind UDP socket for client
     ///
@@ -34,6 +34,8 @@ pub const UdpSocket = struct {
             std.posix.IPPROTO.UDP,
         );
         errdefer std.posix.close(socket);
+
+        try configureSocket(socket);
 
         return Self{
             .socket = socket,
@@ -61,6 +63,8 @@ pub const UdpSocket = struct {
             std.posix.IPPROTO.UDP,
         );
         errdefer std.posix.close(socket);
+
+        try configureSocket(socket);
 
         // Allow per-connection sockets to bind to the same address
         const reuse_addr: u32 = 1;
@@ -179,6 +183,11 @@ pub const UdpSocket = struct {
             .data = data,
             .sender = sender,
         };
+    }
+
+    fn configureSocket(socket: std.posix.socket_t) !void {
+        try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF, std.mem.asBytes(&socket_buffer_bytes));
+        try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, std.mem.asBytes(&socket_buffer_bytes));
     }
 
     /// Send to specific address (server only)
