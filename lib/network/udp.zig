@@ -3,6 +3,14 @@ const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const Address = std.net.Address;
 
+fn resolveAddress(allocator: Allocator, name: []const u8, port: u16) !Address {
+    const address_list = try std.net.getAddressList(allocator, name, port);
+    defer address_list.deinit();
+
+    if (address_list.addrs.len == 0) return error.UnknownHostName;
+    return address_list.addrs[0];
+}
+
 /// UDP socket for SSH/QUIC initial key exchange
 ///
 /// Per SPEC.md: SSH_QUIC_INIT and SSH_QUIC_REPLY are exchanged as UDP datagrams
@@ -24,8 +32,8 @@ pub const UdpSocket = struct {
         server_address: []const u8,
         server_port: u16,
     ) !Self {
-        // Parse server address
-        const address = try Address.parseIp4(server_address, server_port);
+        // Resolve server address so hostnames work via the system resolver.
+        const address = try resolveAddress(allocator, server_address, server_port);
 
         // Create UDP socket
         const socket = try std.posix.socket(
@@ -53,8 +61,8 @@ pub const UdpSocket = struct {
         listen_address: []const u8,
         listen_port: u16,
     ) !Self {
-        // Parse listen address
-        const address = try Address.parseIp4(listen_address, listen_port);
+        // Resolve listen address so named bind targets work alongside literals.
+        const address = try resolveAddress(allocator, listen_address, listen_port);
 
         // Create UDP socket
         const socket = try std.posix.socket(
@@ -162,14 +170,14 @@ pub const UdpSocket = struct {
         const buffer = try self.allocator.alloc(u8, max_size);
         errdefer self.allocator.free(buffer);
 
-        var sender_addr: std.posix.sockaddr = undefined;
-        var sender_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr);
+        var sender_addr = std.mem.zeroes(std.posix.sockaddr.storage);
+        var sender_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
 
         const bytes_received = try std.posix.recvfrom(
             self.socket,
             buffer,
             0,
-            &sender_addr,
+            @ptrCast(&sender_addr),
             &sender_len,
         );
 
@@ -177,7 +185,7 @@ pub const UdpSocket = struct {
         const data = try self.allocator.realloc(buffer, bytes_received);
 
         // Convert sockaddr to Address
-        const sender = Address.initPosix(@alignCast(&sender_addr));
+        const sender = Address.initPosix(@ptrCast(&sender_addr));
 
         return .{
             .data = data,
@@ -349,4 +357,15 @@ test "KeyExchangeTransport - initialization" {
     defer transport.deinit();
 
     // Verify transport was created successfully
+}
+
+test "UdpSocket - client initialization resolves hostnames" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var socket = UdpSocket.initClient(allocator, "localhost", 2222) catch |err| {
+        std.debug.print("Skipping test (hostname resolution unavailable): {}\n", .{err});
+        return error.SkipZigTest;
+    };
+    defer socket.deinit();
 }

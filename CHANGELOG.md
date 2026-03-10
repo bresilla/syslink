@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.13] - 2026-03-10
+
+### <!-- 0 -->⛰️  Features
+
+- Improve network address handling
+
 ## [0.0.12] - 2026-03-10
 
 ### <!-- 0 -->⛰️  Features

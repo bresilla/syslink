@@ -1,10 +1,10 @@
 .{
     .name = .liblink,
-    .version = "0.0.12",
+    .version = "0.0.13",
     .dependencies = .{
         .libfast = .{
-            .url = "git+https://github.com/bresilla/libfast?ref=0.0.15",
-            .hash = "libfast-0.0.15-BoxUpZqTDAD9cdL3PqlSZWch7PFsn0HgAaK_q3_Xxhgw",
+            .url = "git+https://github.com/bresilla/libfast#0.0.16",
+            .hash = "libfast-0.0.16-BoxUpZaTDAClNv5M5VImaQ06w2vVSI5HSbOADKDNqIXq",
             // .path = "../libfast",
         },
     },
