@@ -232,15 +232,15 @@ Exit criteria:
 
 ### Phase 2: Protocol and Manifest
 
-- implement wire types
-- implement manifest encoding and decoding
-- implement filesystem walking and stable ordering
-- implement resume-state calculation
+- [x] implement wire types
+- [x] implement manifest encoding and decoding
+- [x] implement filesystem walking and stable ordering
+- [x] implement resume-state calculation
 
 Exit criteria:
 
-- manifest round-trip tests pass
-- sender and receiver agree on resume start point
+- [x] manifest round-trip tests pass
+- [x] sender and receiver agree on resume start point
 
 ### Phase 3: Transfer Engine
 
@@ -278,7 +278,7 @@ Exit criteria:
 
 ### Phase 6: Testing and Docs
 
-- unit tests for protocol and manifest
+- [x] unit tests for protocol and manifest
 - integration tests for end-to-end copy
 - resume tests
 - overwrite and collision tests
