@@ -244,15 +244,15 @@ Exit criteria:
 
 ### Phase 3: Transfer Engine
 
-- implement sender file streaming
-- implement receiver file creation and writes
-- implement periodic checkpoints
-- implement final completion handshake
+- [x] implement sender file streaming
+- [x] implement receiver file creation and writes
+- [x] implement periodic checkpoints
+- [x] implement final completion handshake
 
 Exit criteria:
 
-- single-file and directory transfers work locally
-- interrupted transfer can resume correctly
+- [x] single-file and directory transfers work locally
+- [x] interrupted transfer can resume correctly
 
 ### Phase 4: CLI
 
@@ -279,8 +279,8 @@ Exit criteria:
 ### Phase 6: Testing and Docs
 
 - [x] unit tests for protocol and manifest
-- integration tests for end-to-end copy
-- resume tests
+- [x] integration tests for end-to-end copy
+- [x] resume tests
 - overwrite and collision tests
 - docs for API and CLI usage
 

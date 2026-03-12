@@ -8,7 +8,9 @@ pub const server = @import("server.zig");
 pub const workflow = @import("workflow.zig");
 
 pub const Client = client.Client;
+pub const PushOptions = client.PushOptions;
 pub const Server = server.Server;
+pub const TransferStats = client.TransferStats;
 pub const Entry = manifest.Entry;
 pub const EntryKind = manifest.EntryKind;
 pub const Manifest = manifest.Manifest;
@@ -18,6 +20,8 @@ pub const WalkOptions = fs.WalkOptions;
 pub const buildManifestFromPaths = fs.buildManifestFromPaths;
 pub const buildManifestFromSources = fs.buildManifestFromSources;
 pub const calculateResumeState = fs.calculateResumeState;
+pub const deriveArchivePath = fs.deriveArchivePath;
+pub const joinPath = fs.joinPath;
 pub const openMacsync = workflow.openMacsync;
 pub const connect = workflow.connect;
 

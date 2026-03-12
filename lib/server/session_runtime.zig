@@ -533,10 +533,10 @@ pub const SessionRuntime = struct {
             .allocator = self.allocator,
         };
 
-        var macsync_server = macsync.Server.init(self.allocator, session_channel);
+        var macsync_server = try macsync.Server.init(self.allocator, session_channel);
         defer macsync_server.deinit();
 
-        _ = macsync_server.runNoopHandshake() catch |err| {
+        macsync_server.run() catch |err| {
             if (err != error.EndOfStream and err != error.StreamClosed) return err;
         };
 

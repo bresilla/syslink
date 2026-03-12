@@ -9,6 +9,7 @@ const std = @import("std");
 pub const connection = @import("connection_test.zig");
 pub const sftp = @import("sftp_test.zig");
 pub const sftp_e2e = @import("sftp_e2e_test.zig");
+pub const macsync_e2e = @import("macsync_e2e_test.zig");
 pub const network_auth_e2e = @import("network_auth_e2e_test.zig");
 pub const network_sftp_e2e = @import("network_sftp_e2e_test.zig");
 pub const network_exec_e2e = @import("network_exec_e2e_test.zig");

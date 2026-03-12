@@ -221,7 +221,7 @@ fn statPath(allocator: std.mem.Allocator, path: []const u8) !RawMetadata {
     };
 }
 
-fn deriveArchivePath(allocator: std.mem.Allocator, input_path: []const u8) ![]u8 {
+pub fn deriveArchivePath(allocator: std.mem.Allocator, input_path: []const u8) ![]u8 {
     const trimmed = std.mem.trimRight(u8, input_path, "/");
     const candidate = if (trimmed.len == 0) input_path else trimmed;
     const basename = std.fs.path.basename(candidate);
@@ -249,7 +249,7 @@ fn normalizeArchivePath(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
     return out.toOwnedSlice(allocator);
 }
 
-fn joinPath(allocator: std.mem.Allocator, lhs: []const u8, rhs: []const u8) ![]u8 {
+pub fn joinPath(allocator: std.mem.Allocator, lhs: []const u8, rhs: []const u8) ![]u8 {
     if (lhs.len == 0) return allocator.dupe(u8, rhs);
     if (rhs.len == 0) return allocator.dupe(u8, lhs);
     return std.fmt.allocPrint(allocator, "{s}/{s}", .{ lhs, rhs });

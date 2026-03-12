@@ -14,7 +14,12 @@ pub const MessageType = enum(u8) {
     file_done = 6,
     checkpoint = 7,
     complete = 8,
+    transfer_request = 9,
     error_message = 255,
+};
+
+pub const TransferKind = enum(u8) {
+    push = 1,
 };
 
 pub const Hello = struct {
@@ -60,6 +65,50 @@ pub const Ready = struct {
 };
 
 pub const ResumeState = manifest_mod.ResumeState;
+
+pub const TransferRequest = struct {
+    kind: TransferKind,
+    destination_root: []const u8,
+    preserve_mode: bool = false,
+    preserve_time: bool = false,
+
+    pub fn encode(self: TransferRequest, allocator: std.mem.Allocator) ![]u8 {
+        const buffer = try allocator.alloc(u8, 1 + 1 + 1 + 1 + 4 + self.destination_root.len);
+        errdefer allocator.free(buffer);
+
+        buffer[0] = @intFromEnum(MessageType.transfer_request);
+        var writer = wire.Writer{ .buffer = buffer[1..] };
+        try writer.writeByte(@intFromEnum(self.kind));
+        try writer.writeBool(self.preserve_mode);
+        try writer.writeBool(self.preserve_time);
+        try writer.writeString(self.destination_root);
+        return buffer;
+    }
+
+    pub fn decode(allocator: std.mem.Allocator, data: []const u8) !TransferRequest {
+        if (data.len < 8 or data[0] != @intFromEnum(MessageType.transfer_request)) {
+            return error.InvalidMacsyncTransferRequest;
+        }
+
+        var reader = wire.Reader{ .buffer = data[1..] };
+        const kind_byte = try reader.readByte();
+        const preserve_mode = try reader.readBool();
+        const preserve_time = try reader.readBool();
+        const destination_root = try reader.readString(allocator);
+        errdefer allocator.free(destination_root);
+
+        return .{
+            .kind = std.meta.intToEnum(TransferKind, kind_byte) catch return error.InvalidMacsyncTransferKind,
+            .destination_root = destination_root,
+            .preserve_mode = preserve_mode,
+            .preserve_time = preserve_time,
+        };
+    }
+
+    pub fn deinit(self: *TransferRequest, allocator: std.mem.Allocator) void {
+        allocator.free(self.destination_root);
+    }
+};
 
 pub const FileChunk = struct {
     file_id: u32,
@@ -333,4 +382,24 @@ test "macsync protocol file chunk round-trip" {
 
     try std.testing.expectEqual(@as(u32, 3), decoded.file_id);
     try std.testing.expectEqualStrings("payload", decoded.data);
+}
+
+test "macsync protocol transfer request round-trip" {
+    const allocator = std.testing.allocator;
+
+    const encoded = try (TransferRequest{
+        .kind = .push,
+        .destination_root = "incoming",
+        .preserve_mode = true,
+        .preserve_time = false,
+    }).encode(allocator);
+    defer allocator.free(encoded);
+
+    var decoded = try TransferRequest.decode(allocator, encoded);
+    defer decoded.deinit(allocator);
+
+    try std.testing.expectEqual(.push, decoded.kind);
+    try std.testing.expect(decoded.preserve_mode);
+    try std.testing.expect(!decoded.preserve_time);
+    try std.testing.expectEqualStrings("incoming", decoded.destination_root);
 }
