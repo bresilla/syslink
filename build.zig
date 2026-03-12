@@ -119,6 +119,29 @@ pub fn build(b: *std.Build) !void {
     const syslink_step = b.step("syslink", "Compile syslink CLI binary");
     syslink_step.dependOn(&syslink.step);
 
+    const macsync_module = b.createModule(.{
+        .root_source_file = b.path("bin/macsync.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    macsync_module.addImport("liblink", liblink_module);
+
+    const macsync_unit_tests = b.addTest(.{
+        .root_module = macsync_module,
+    });
+    const run_macsync_unit_tests = b.addRunArtifact(macsync_unit_tests);
+    test_step.dependOn(&run_macsync_unit_tests.step);
+
+    const macsync_bin = b.addExecutable(.{
+        .name = "macsync",
+        .root_module = macsync_module,
+    });
+    b.installArtifact(macsync_bin);
+
+    const macsync_step = b.step("macsync", "Compile macsync CLI binary");
+    macsync_step.dependOn(&macsync_bin.step);
+
     const examples_step = b.step("examples", "Compile example programs");
     examples_step.dependOn(&ex_client.step);
     examples_step.dependOn(&ex_server.step);

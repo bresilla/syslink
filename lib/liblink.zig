@@ -48,6 +48,7 @@ pub const auth = struct {
 pub const channels = @import("channels/channels.zig");
 
 pub const sftp = @import("sftp/sftp.zig");
+pub const macsync = @import("macsync/macsync.zig");
 
 pub const connection = @import("connection.zig");
 

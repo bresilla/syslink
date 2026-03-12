@@ -6,11 +6,13 @@ const wire = @import("../protocol/wire.zig");
 const pty = @import("../platform/pty.zig");
 const user = @import("../platform/user.zig");
 const sftp = @import("../sftp/sftp.zig");
+const macsync = @import("../macsync/macsync.zig");
 
 pub const SessionMode = enum {
     shell,
     exec,
     subsystem_sftp,
+    subsystem_macsync,
 };
 
 const PtyRequestInfo = struct {
@@ -197,6 +199,7 @@ pub const SessionRuntime = struct {
             .shell => try self.bridgeSession(server_conn, stream_id),
             .exec => try self.runExecRequest(server_conn, stream_id),
             .subsystem_sftp => try self.runSftpSubsystem(server_conn, stream_id),
+            .subsystem_macsync => try self.runMacsyncSubsystem(server_conn, stream_id),
         }
     }
 
@@ -260,11 +263,14 @@ pub const SessionRuntime = struct {
                 return err;
             };
             defer self.allocator.free(subsystem_name);
-            if (!std.mem.eql(u8, subsystem_name, "sftp")) {
+            if (std.mem.eql(u8, subsystem_name, "sftp")) {
+                try self.session_modes.put(stream_id, .subsystem_sftp);
+            } else if (std.mem.eql(u8, subsystem_name, "macsync")) {
+                try self.session_modes.put(stream_id, .subsystem_macsync);
+            } else {
                 if (want_reply) server_conn.channel_manager.sendFailure(stream_id) catch {};
                 return error.UnsupportedSubsystem;
             }
-            try self.session_modes.put(stream_id, .subsystem_sftp);
         } else {
             if (want_reply) server_conn.channel_manager.sendFailure(stream_id) catch {};
             return error.UnsupportedRequest;
@@ -505,6 +511,33 @@ pub const SessionRuntime = struct {
 
         sftp_server.run() catch |err| {
             if (err != error.EndOfStream and err != error.ConnectionClosed) return err;
+        };
+
+        server_conn.channel_manager.sendEof(stream_id) catch {};
+        server_conn.channel_manager.closeChannel(stream_id) catch {};
+        if (self.session_env.fetchRemove(stream_id)) |entry| {
+            var info = entry.value;
+            info.deinit();
+        }
+        if (self.pty_requests.fetchRemove(stream_id)) |entry| {
+            var info = entry.value;
+            info.deinit();
+        }
+        _ = self.session_modes.fetchRemove(stream_id);
+    }
+
+    fn runMacsyncSubsystem(self: *Self, server_conn: *connection.ServerConnection, stream_id: u64) !void {
+        const session_channel = channels.SessionChannel{
+            .manager = &server_conn.channel_manager,
+            .stream_id = stream_id,
+            .allocator = self.allocator,
+        };
+
+        var macsync_server = macsync.Server.init(self.allocator, session_channel);
+        defer macsync_server.deinit();
+
+        _ = macsync_server.runNoopHandshake() catch |err| {
+            if (err != error.EndOfStream and err != error.StreamClosed) return err;
         };
 
         server_conn.channel_manager.sendEof(stream_id) catch {};
@@ -820,11 +853,11 @@ pub const SessionRuntime = struct {
     }
 };
 
-fn appendWireString(list: *std.ArrayList(u8), value: []const u8) !void {
+fn appendWireString(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, value: []const u8) !void {
     var len_bytes: [4]u8 = undefined;
     std.mem.writeInt(u32, &len_bytes, @intCast(value.len), .big);
-    try list.appendSlice(&len_bytes);
-    try list.appendSlice(value);
+    try list.appendSlice(allocator, &len_bytes);
+    try list.appendSlice(allocator, value);
 }
 
 test "isValidTermName accepts expected terminal names" {
@@ -876,32 +909,32 @@ test "nextClientChannelMessageLen handles channel data packet boundaries" {
 test "nextClientChannelMessageLen parses shell and exec requests" {
     const allocator = std.testing.allocator;
 
-    var shell_msg = std.ArrayList(u8).init(allocator);
-    defer shell_msg.deinit();
-    try shell_msg.append(98);
-    try appendWireString(&shell_msg, "shell");
-    try shell_msg.append(1);
+    var shell_msg = std.ArrayListUnmanaged(u8){};
+    defer shell_msg.deinit(allocator);
+    try shell_msg.append(allocator, 98);
+    try appendWireString(&shell_msg, allocator, "shell");
+    try shell_msg.append(allocator, 1);
     try std.testing.expectEqual(@as(?usize, shell_msg.items.len), try SessionRuntime.nextClientChannelMessageLen(shell_msg.items));
 
-    var exec_msg = std.ArrayList(u8).init(allocator);
-    defer exec_msg.deinit();
-    try exec_msg.append(98);
-    try appendWireString(&exec_msg, "exec");
-    try exec_msg.append(0);
-    try appendWireString(&exec_msg, "echo ok");
+    var exec_msg = std.ArrayListUnmanaged(u8){};
+    defer exec_msg.deinit(allocator);
+    try exec_msg.append(allocator, 98);
+    try appendWireString(&exec_msg, allocator, "exec");
+    try exec_msg.append(allocator, 0);
+    try appendWireString(&exec_msg, allocator, "echo ok");
     try std.testing.expectEqual(@as(?usize, exec_msg.items.len), try SessionRuntime.nextClientChannelMessageLen(exec_msg.items));
 }
 
 test "nextClientChannelMessageLen parses env requests" {
     const allocator = std.testing.allocator;
 
-    var env_msg = std.ArrayList(u8).init(allocator);
-    defer env_msg.deinit();
-    try env_msg.append(98);
-    try appendWireString(&env_msg, "env");
-    try env_msg.append(1);
-    try appendWireString(&env_msg, "LANG");
-    try appendWireString(&env_msg, "en_US.UTF-8");
+    var env_msg = std.ArrayListUnmanaged(u8){};
+    defer env_msg.deinit(allocator);
+    try env_msg.append(allocator, 98);
+    try appendWireString(&env_msg, allocator, "env");
+    try env_msg.append(allocator, 1);
+    try appendWireString(&env_msg, allocator, "LANG");
+    try appendWireString(&env_msg, allocator, "en_US.UTF-8");
 
     try std.testing.expectEqual(@as(?usize, env_msg.items.len), try SessionRuntime.nextClientChannelMessageLen(env_msg.items));
 }
@@ -909,14 +942,14 @@ test "nextClientChannelMessageLen parses env requests" {
 test "nextClientChannelMessageLen parses pty-req and rejects truncated modes" {
     const allocator = std.testing.allocator;
 
-    var pty_req = std.ArrayList(u8).init(allocator);
-    defer pty_req.deinit();
-    try pty_req.append(98);
-    try appendWireString(&pty_req, "pty-req");
-    try pty_req.append(1);
-    try appendWireString(&pty_req, "xterm-256color");
+    var pty_req = std.ArrayListUnmanaged(u8){};
+    defer pty_req.deinit(allocator);
+    try pty_req.append(allocator, 98);
+    try appendWireString(&pty_req, allocator, "pty-req");
+    try pty_req.append(allocator, 1);
+    try appendWireString(&pty_req, allocator, "xterm-256color");
 
-    try pty_req.appendSlice(&[_]u8{
+    try pty_req.appendSlice(allocator, &[_]u8{
         0,
         0,
         0,
@@ -934,7 +967,7 @@ test "nextClientChannelMessageLen parses pty-req and rejects truncated modes" {
         0,
         0,
     });
-    try appendWireString(&pty_req, "\x00");
+    try appendWireString(&pty_req, allocator, "\x00");
 
     try std.testing.expectEqual(@as(?usize, pty_req.items.len), try SessionRuntime.nextClientChannelMessageLen(pty_req.items));
 

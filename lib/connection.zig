@@ -10,6 +10,7 @@ const auth = @import("auth/auth.zig");
 const known_hosts = @import("auth/known_hosts.zig");
 const channels = @import("channels/channels.zig");
 const sftp = @import("sftp/sftp.zig");
+const macsync = @import("macsync/macsync.zig");
 
 /// SSH/QUIC connection configuration
 pub const ConnectionConfig = struct {
@@ -420,6 +421,14 @@ pub const ClientConnection = struct {
     pub fn openSftp(self: *Self) !sftp.SftpChannel {
         const session = try self.requestSubsystem("sftp");
         return sftp.SftpChannel.init(self.allocator, session);
+    }
+
+    /// Open macsync session (convenience method)
+    ///
+    /// Opens a session channel, requests "macsync", performs the phase-1
+    /// handshake, and returns a ready macsync client.
+    pub fn openMacsync(self: *Self) !macsync.Client {
+        return macsync.connect(self.allocator, self);
     }
 };
 

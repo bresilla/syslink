@@ -409,12 +409,12 @@ fn setControlModeSize(termios_p: *c.termios, comptime decl_name: []const u8) voi
     termios_p.c_cflag |= @as(cflag_type, @intCast(@field(c, decl_name)));
 }
 
-fn appendEncodedMode(list: *std.ArrayList(u8), opcode: u8, value: u32) !void {
-    try list.append(opcode);
+fn appendEncodedMode(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, opcode: u8, value: u32) !void {
+    try list.append(allocator, opcode);
 
     var bytes: [4]u8 = undefined;
     std.mem.writeInt(u32, &bytes, value, .big);
-    try list.appendSlice(&bytes);
+    try list.appendSlice(allocator, &bytes);
 }
 
 test "encodeMinimalModes includes expected defaults" {
@@ -498,17 +498,17 @@ test "speed conversion uses baud values instead of raw termios constants" {
 test "applyEncodedTerminalModesToTermios updates flags control chars and speed" {
     const allocator = std.testing.allocator;
 
-    var encoded = std.ArrayList(u8).init(allocator);
-    defer encoded.deinit();
+    var encoded = std.ArrayListUnmanaged(u8){};
+    defer encoded.deinit(allocator);
 
-    try appendEncodedMode(&encoded, ECHO, 0);
-    try appendEncodedMode(&encoded, ICANON, 0);
-    try appendEncodedMode(&encoded, IXON, 1);
-    try appendEncodedMode(&encoded, VERASE, 127);
-    try appendEncodedMode(&encoded, OPOST, 1);
-    try appendEncodedMode(&encoded, TTY_OP_ISPEED, 38400);
-    try appendEncodedMode(&encoded, TTY_OP_OSPEED, 38400);
-    try encoded.append(TTY_OP_END);
+    try appendEncodedMode(&encoded, allocator, ECHO, 0);
+    try appendEncodedMode(&encoded, allocator, ICANON, 0);
+    try appendEncodedMode(&encoded, allocator, IXON, 1);
+    try appendEncodedMode(&encoded, allocator, VERASE, 127);
+    try appendEncodedMode(&encoded, allocator, OPOST, 1);
+    try appendEncodedMode(&encoded, allocator, TTY_OP_ISPEED, 38400);
+    try appendEncodedMode(&encoded, allocator, TTY_OP_OSPEED, 38400);
+    try encoded.append(allocator, TTY_OP_END);
 
     var termios_p = std.mem.zeroes(c.termios);
     try applyEncodedTerminalModesToTermios(&termios_p, encoded.items);
