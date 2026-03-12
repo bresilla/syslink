@@ -129,7 +129,7 @@
 - Move high-level sftp file operations into library workflow
 - Move client auth fallback flow into library module
 - Move daemon pid lifecycle helpers into library
-- Move server session runtime from sl binary into library
+- Move server session runtime from syslink binary into library
 
 ### <!-- 6 -->🧪 Testing
 
@@ -234,7 +234,7 @@
 - Remove SSHFS to streamline the codebase
 - Rename library from voidbox to syslink
 - Improve CLI command structure and help system
-- Rename CLI tool from vb to sl
+- Rename CLI tool from vb to syslink
 - Rename src/ to lib/ and cli/ to bin/ for better clarity
 
 ### <!-- 3 -->📚 Documentation
@@ -269,4 +269,3 @@
 
 - Add release automation and project metadata
 - Create directory structure for all modules
-

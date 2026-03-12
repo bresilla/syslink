@@ -1,12 +1,12 @@
-# sl - SSH/QUIC CLI
+# syslink - SSH/QUIC CLI
 
-`sl` is the command-line interface for liblink. It provides remote shell access, command execution, and file transfer over the SSH/QUIC protocol.
+`syslink` is the command-line interface for liblink. It provides remote shell access, command execution, and file transfer over the SSH/QUIC protocol.
 
 ## Installation
 
 ```bash
 zig build
-# binary at zig-out/bin/sl
+# binary at zig-out/bin/syslink
 ```
 
 ## Server
@@ -15,16 +15,16 @@ zig build
 
 ```bash
 # Generate a persistent host key (one-time)
-ssh-keygen -t ed25519 -f ~/.ssh/sl_host_key -N ""
+ssh-keygen -t ed25519 -f ~/.ssh/syslink_host_key -N ""
 
 # Start server
-sl server start -k ~/.ssh/sl_host_key
+syslink server start -k ~/.ssh/syslink_host_key
 
 # Listen on specific address/port
-sl server start -k ~/.ssh/sl_host_key --host 0.0.0.0 --port 2222
+syslink server start -k ~/.ssh/syslink_host_key --host 0.0.0.0 --port 2222
 
 # Run as daemon
-sl server start -k ~/.ssh/sl_host_key --daemon
+syslink server start -k ~/.ssh/syslink_host_key --daemon
 ```
 
 If `-k` is not specified, the server generates an ephemeral host key on each start. This means clients will see a fingerprint mismatch after every restart. Use a persistent key file for production.
@@ -32,8 +32,8 @@ If `-k` is not specified, the server generates an ephemeral host key on each sta
 ### Stop / Status
 
 ```bash
-sl server stop
-sl server status
+syslink server stop
+syslink server status
 ```
 
 ### Authentication
@@ -58,21 +58,21 @@ cat client_key.pub >> /home/user/.ssh/authorized_keys
 ### Remote Shell
 
 ```bash
-sl shell user@host:2222
-sl shell -i ~/.ssh/id_ed25519 user@host:2222
+syslink shell user@host:2222
+syslink shell -i ~/.ssh/id_ed25519 user@host:2222
 ```
 
 ### Remote Command Execution
 
 ```bash
-sl exec user@host "ls -la"
-sl exec -i ~/.ssh/id_ed25519 user@host:2222 "uname -a"
+syslink exec user@host "ls -la"
+syslink exec -i ~/.ssh/id_ed25519 user@host:2222 "uname -a"
 ```
 
 ### SFTP File Transfer
 
 ```bash
-sl sftp user@host:2222
+syslink sftp user@host:2222
 ```
 
 Interactive SFTP commands:
@@ -124,8 +124,8 @@ On first connection, the client saves the server's fingerprint to `~/.ssh/known_
 
 Examples:
 ```bash
-sl shell host                  # root@host:2222
-sl shell user@host             # user@host:2222
-sl shell user@host:3333        # user@host:3333
-sl shell 192.168.1.10          # root@192.168.1.10:2222
+syslink shell host                  # root@host:2222
+syslink shell user@host             # user@host:2222
+syslink shell user@host:3333        # user@host:3333
+syslink shell 192.168.1.10          # root@192.168.1.10:2222
 ```

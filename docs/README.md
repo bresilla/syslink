@@ -65,7 +65,7 @@ zig build test --summary all
 
 ## CLI note
 
-The `sl` CLI sits in `bin/` and demonstrates production-style usage patterns for shell/exec/sftp operations.
+The `syslink` CLI sits in `bin/` and demonstrates production-style usage patterns for shell/exec/sftp operations.
 
 ## Version
 

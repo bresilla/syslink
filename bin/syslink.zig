@@ -60,22 +60,22 @@ pub fn main() !void {
         try printHelp();
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
-        std.debug.print("Run 'sl help' for usage information\n", .{});
+        std.debug.print("Run 'syslink help' for usage information\n", .{});
         std.process.exit(1);
     }
 }
 
 fn printVersion() !void {
-    std.debug.print("sl version {s}\n", .{VERSION});
+    std.debug.print("syslink version {s}\n", .{VERSION});
     std.debug.print("SSH/QUIC implementation with SFTP support\n", .{});
 }
 
 fn printHelp() !void {
     std.debug.print(
-        \\sl - SSH/QUIC flagship CLI tool
+        \\syslink - SSH/QUIC flagship CLI tool
         \\
         \\USAGE:
-        \\    sl <command> [options] [arguments]
+        \\    syslink <command> [options] [arguments]
         \\
         \\COMMANDS:
         \\
@@ -96,7 +96,7 @@ fn printHelp() !void {
         \\SERVER OPTIONS:
         \\    -p, --port <port>           Listen port (default: 2222)
         \\    -h, --host <addr>           Listen address (default: 0.0.0.0)
-        \\    -k, --host-key <file>       Host key file (default: ~/.ssh/sl_host_key)
+        \\    -k, --host-key <file>       Host key file (default: ephemeral)
         \\    -d, --daemon                Run as background daemon
         \\
         \\NOTE: Server validates against system users (like SSH).
@@ -111,14 +111,14 @@ fn printHelp() !void {
         \\EXAMPLES:
         \\
         \\  Start server:
-        \\    sl server start
-        \\    sl server start -p 2222
-        \\    sudo sl server start --daemon
+        \\    syslink server start
+        \\    syslink server start -p 2222
+        \\    sudo syslink server start --daemon
         \\
         \\  Connect to server:
-        \\    sl shell testuser@192.168.1.100:2222
-        \\    sl exec testuser@server.com "ls -la"
-        \\    sl sftp testuser@example.com
+        \\    syslink shell testuser@192.168.1.100:2222
+        \\    syslink exec testuser@server.com "ls -la"
+        \\    syslink sftp testuser@example.com
         \\
         \\SFTP COMMANDS (in sftp> prompt):
         \\    ls [path]                   List directory
@@ -141,7 +141,7 @@ fn printHelp() !void {
 fn runServerCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len < 1) {
         std.debug.print("Error: Server subcommand required\n", .{});
-        std.debug.print("Usage: sl server <start|stop|status> [options]\n", .{});
+        std.debug.print("Usage: syslink server <start|stop|status> [options]\n", .{});
         std.process.exit(1);
     }
 
@@ -169,7 +169,7 @@ fn handleSession(server_conn: *liblink.connection.ServerConnection, authenticate
 
 fn serverStart(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (std.os.linux.getuid() == 0) {
-        std.debug.print("Error: sl server must not run as root\n", .{});
+        std.debug.print("Error: syslink server must not run as root\n", .{});
         return error.RunningAsRoot;
     }
 
@@ -260,7 +260,7 @@ fn serverStart(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
         try liblink.server.daemon.writePidFile(allocator, child.id);
         std.debug.print("✓ Server started in daemon mode (pid {})\n", .{child.id});
-        std.debug.print("Use `sl server status` to check health and `sl server stop` to stop it.\n", .{});
+        std.debug.print("Use `syslink server status` to check health and `syslink server stop` to stop it.\n", .{});
         return;
     }
 
@@ -582,7 +582,7 @@ fn forwardSessionEnv(allocator: std.mem.Allocator, session: *liblink.channels.Se
 fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len < 1) {
         std.debug.print("Error: Host required\n", .{});
-        std.debug.print("Usage: sl shell [options] [user@]host[:port]\n", .{});
+        std.debug.print("Usage: syslink shell [options] [user@]host[:port]\n", .{});
         std.debug.print("Options:\n", .{});
         std.debug.print("  -i, --identity <key>   Private key for public key authentication\n", .{});
         std.debug.print("  --strict-host-key      Require host in known hosts\n", .{});
@@ -850,12 +850,12 @@ fn runShellInteractive(allocator: std.mem.Allocator, session: *liblink.channels.
 fn runExecCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len < 2) {
         std.debug.print("Error: Host and command required\n", .{});
-        std.debug.print("Usage: sl exec [options] [user@]host[:port] <command>\n", .{});
+        std.debug.print("Usage: syslink exec [options] [user@]host[:port] <command>\n", .{});
         std.debug.print("Options:\n", .{});
         std.debug.print("  -i, --identity <key>   Private key for public key authentication\n", .{});
         std.debug.print("  --strict-host-key      Require host in known hosts\n", .{});
         std.debug.print("  --accept-new-host-key  Trust unknown host and persist (default)\n", .{});
-        std.debug.print("Example: sl exec user@host \"ls -la\"\n", .{});
+        std.debug.print("Example: syslink exec user@host \"ls -la\"\n", .{});
         std.process.exit(1);
     }
 
@@ -952,7 +952,7 @@ fn runExecCommand(allocator: std.mem.Allocator, args: []const []const u8) !void 
 fn runSftpCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len < 1) {
         std.debug.print("Error: Host required\n", .{});
-        std.debug.print("Usage: sl sftp [options] [user@]host[:port]\n", .{});
+        std.debug.print("Usage: syslink sftp [options] [user@]host[:port]\n", .{});
         std.debug.print("Options:\n", .{});
         std.debug.print("  -i, --identity <key>   Private key for public key authentication\n", .{});
         std.debug.print("  --strict-host-key      Require host in known hosts\n", .{});

@@ -96,28 +96,28 @@ pub fn build(b: *std.Build) !void {
         .root_module = ex_server_module,
     });
 
-    const sl_module = b.createModule(.{
-        .root_source_file = b.path("bin/sl.zig"),
+    const syslink_module = b.createModule(.{
+        .root_source_file = b.path("bin/syslink.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
-    sl_module.addImport("liblink", liblink_module);
+    syslink_module.addImport("liblink", liblink_module);
 
-    const sl_unit_tests = b.addTest(.{
-        .root_module = sl_module,
+    const syslink_unit_tests = b.addTest(.{
+        .root_module = syslink_module,
     });
-    const run_sl_unit_tests = b.addRunArtifact(sl_unit_tests);
-    test_step.dependOn(&run_sl_unit_tests.step);
+    const run_syslink_unit_tests = b.addRunArtifact(syslink_unit_tests);
+    test_step.dependOn(&run_syslink_unit_tests.step);
 
-    const sl = b.addExecutable(.{
-        .name = "sl",
-        .root_module = sl_module,
+    const syslink = b.addExecutable(.{
+        .name = "syslink",
+        .root_module = syslink_module,
     });
-    b.installArtifact(sl);
+    b.installArtifact(syslink);
 
-    const sl_step = b.step("sl", "Compile sl CLI binary");
-    sl_step.dependOn(&sl.step);
+    const syslink_step = b.step("syslink", "Compile syslink CLI binary");
+    syslink_step.dependOn(&syslink.step);
 
     const examples_step = b.step("examples", "Compile example programs");
     examples_step.dependOn(&ex_client.step);

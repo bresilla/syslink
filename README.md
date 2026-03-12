@@ -10,7 +10,7 @@ SSH-over-QUIC protocol/runtime library in Zig.
 - User authentication workflows
 - SSH channels (shell, exec, subsystem)
 - SFTP support
-- Server runtime and CLI support (`sl`)
+- Server runtime and CLI support (`syslink`)
 
 In short: if your product needs SSH semantics over QUIC, this is the package.
 
@@ -25,13 +25,13 @@ zig build test --summary all
 
 ```bash
 # Generate server host key
-ssh-keygen -t ed25519 -f ~/.ssh/sl_host_key -N ""
+ssh-keygen -t ed25519 -f ~/.ssh/syslink_host_key -N ""
 
 # Start server
-sl server start -k ~/.ssh/sl_host_key
+syslink server start -k ~/.ssh/syslink_host_key
 
 # Remote shell
-sl shell -i ~/.ssh/id_ed25519 user@host:2222
+syslink shell -i ~/.ssh/id_ed25519 user@host:2222
 ```
 
 ## Docs
