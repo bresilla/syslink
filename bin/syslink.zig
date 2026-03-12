@@ -818,11 +818,12 @@ fn runShellInteractive(allocator: std.mem.Allocator, session: *liblink.channels.
     var stdin_buffer: [16384]u8 = undefined;
     var out_batch = std.ArrayListUnmanaged(u8){};
     defer out_batch.deinit(allocator);
-    var pending_resize: ?struct { rows: u32, cols: u32 } = null;
+    var resize_dirty = false;
     var last_resize_event_ms: i64 = 0;
-    var last_resize_sent_ms: i64 = 0;
+    var last_resize_sent_ms: i64 = std.time.milliTimestamp();
     const resize_debounce_ms: i64 = 80;
     const resize_max_rate_ms: i64 = 120;
+    var last_sent_size = getTerminalSize() catch .{ .rows = 24, .cols = 80 };
 
     // Optimized I/O loop for low latency
     while (running) {
@@ -835,19 +836,24 @@ fn runShellInteractive(allocator: std.mem.Allocator, session: *liblink.channels.
         session.manager.transport.poll(1) catch {};
 
         if (should_resize.swap(false, .acq_rel)) {
-            const term_size = getTerminalSize() catch .{ .rows = 24, .cols = 80 };
-            pending_resize = .{ .rows = term_size.rows, .cols = term_size.cols };
+            resize_dirty = true;
             last_resize_event_ms = std.time.milliTimestamp();
         }
 
-        if (pending_resize) |size| {
+        if (resize_dirty) {
             const now = std.time.milliTimestamp();
-            if ((now - last_resize_event_ms) >= resize_debounce_ms or
-                (now - last_resize_sent_ms) >= resize_max_rate_ms)
-            {
-                session.requestWindowChange(size.cols, size.rows, 0, 0) catch {};
-                pending_resize = null;
-                last_resize_sent_ms = now;
+            const settled = (now - last_resize_event_ms) >= resize_debounce_ms;
+            if (settled or (now - last_resize_sent_ms) >= resize_max_rate_ms) {
+                const term_size = getTerminalSize() catch .{ .rows = 24, .cols = 80 };
+                if (term_size.rows != last_sent_size.rows or term_size.cols != last_sent_size.cols) {
+                    session.requestWindowChange(term_size.cols, term_size.rows, 0, 0) catch {};
+                    last_sent_size = term_size;
+                    last_resize_sent_ms = now;
+                }
+
+                if (settled) {
+                    resize_dirty = false;
+                }
             }
         }
 
