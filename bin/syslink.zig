@@ -106,6 +106,7 @@ fn printHelp() !void {
         \\    -i, --identity <key>        Use public key authentication
         \\    --strict-host-key           Require host to exist in known hosts
         \\    --accept-new-host-key       Trust on first use (default)
+        \\    --replace-trusted-host      Replace stored host key for this host
         \\    -P, --port <port>           Server port (default: 2222)
         \\
         \\EXAMPLES:
@@ -544,6 +545,17 @@ fn restoreTerminalMode(original: *const anyopaque) void {
     _ = c.tcsetattr(std.posix.STDIN_FILENO, c.TCSAFLUSH, orig);
 }
 
+fn setFdNonblocking(fd: std.posix.fd_t) !usize {
+    const flags = try std.posix.fcntl(fd, std.posix.F.GETFL, 0);
+    const nonblock_flag = @as(usize, @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true }))));
+    _ = try std.posix.fcntl(fd, std.posix.F.SETFL, flags | nonblock_flag);
+    return flags;
+}
+
+fn restoreFdFlags(fd: std.posix.fd_t, flags: usize) void {
+    _ = std.posix.fcntl(fd, std.posix.F.SETFL, flags) catch {};
+}
+
 fn authenticateClient(
     allocator: std.mem.Allocator,
     conn: *liblink.connection.ClientConnection,
@@ -563,6 +575,38 @@ fn connectClientWithHostTrust(
     policy: liblink.connection.HostKeyTrustPolicy,
 ) !liblink.connection.ClientConnection {
     return liblink.connection.connectClientTrusted(allocator, hostname, port, random, policy);
+}
+
+fn printHostKeyFailureGuidance(
+    allocator: std.mem.Allocator,
+    hostname: []const u8,
+    port: u16,
+    policy: liblink.connection.HostKeyTrustPolicy,
+) void {
+    const host_key = liblink.auth.known_hosts.hostKeyForEndpoint(allocator, hostname, port) catch return;
+    defer allocator.free(host_key);
+
+    const trusted = liblink.auth.known_hosts.loadFingerprintsForHost(allocator, host_key) catch return;
+    defer liblink.auth.known_hosts.freeFingerprints(allocator, trusted);
+
+    std.debug.print("\nHost key entry: {s}\n", .{host_key});
+    if (trusted.len == 0) {
+        std.debug.print("No matching fingerprint is stored in ~/.ssh/known_hosts.\n", .{});
+        if (policy == .accept_new) {
+            std.debug.print("This should be accepted on first use. If it is not, the observed fingerprint above is the key detail.\n", .{});
+        }
+        return;
+    }
+
+    std.debug.print("Stored fingerprints in ~/.ssh/known_hosts:\n", .{});
+    for (trusted) |fingerprint| {
+        std.debug.print("  {s}\n", .{fingerprint});
+    }
+    if (policy == .accept_new) {
+        std.debug.print("`--accept-new-host-key` only trusts unknown hosts. It does not replace an existing fingerprint.\n", .{});
+        std.debug.print("Use `--replace-trusted-host` if this host key rotation is expected.\n", .{});
+    }
+    std.debug.print("Remove or update the `{s}` entry in ~/.ssh/known_hosts if this server key change is expected.\n", .{host_key});
 }
 
 fn forwardSessionEnv(allocator: std.mem.Allocator, session: *liblink.channels.SessionChannel, name: []const u8) !void {
@@ -587,6 +631,7 @@ fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
         std.debug.print("  -i, --identity <key>   Private key for public key authentication\n", .{});
         std.debug.print("  --strict-host-key      Require host in known hosts\n", .{});
         std.debug.print("  --accept-new-host-key  Trust unknown host and persist (default)\n", .{});
+        std.debug.print("  --replace-trusted-host Replace stored host key for this host\n", .{});
         std.process.exit(1);
     }
 
@@ -609,6 +654,8 @@ fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
             trust_policy = .strict;
         } else if (std.mem.eql(u8, arg, "--accept-new-host-key")) {
             trust_policy = .accept_new;
+        } else if (std.mem.eql(u8, arg, "--replace-trusted-host")) {
+            trust_policy = .replace_trusted_host;
         } else if (arg[0] != '-') {
             host_arg = arg;
         }
@@ -634,6 +681,9 @@ fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
 
     var conn = connectClientWithHostTrust(allocator, hostname, port, random, trust_policy) catch |err| {
         std.debug.print("✗ Connection failed: {}\n", .{err});
+        if (err == error.UntrustedHostKey) {
+            printHostKeyFailureGuidance(allocator, hostname, port, trust_policy);
+        }
         std.debug.print("\nTroubleshooting:\n", .{});
         std.debug.print("  • Check server is running: nc -u -v {s} {d}\n", .{ hostname, port });
         std.debug.print("  • Verify firewall allows UDP port {d}\n", .{port});
@@ -723,6 +773,14 @@ fn runShellCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
         }
     }
 
+    const original_stdin_flags = setFdNonblocking(std.posix.STDIN_FILENO) catch |err| blk: {
+        std.debug.print("Warning: Could not set stdin non-blocking: {}\n", .{err});
+        break :blk null;
+    };
+    defer if (original_stdin_flags) |flags| {
+        restoreFdFlags(std.posix.STDIN_FILENO, flags);
+    };
+
     // Set up signal handler for clean exit on Ctrl+C
     var act = std.posix.Sigaction{
         .handler = .{ .handler = handleSigInt },
@@ -795,7 +853,7 @@ fn runShellInteractive(allocator: std.mem.Allocator, session: *liblink.channels.
 
         // Check for stdin input (non-blocking)
         const stdin_len: usize = stdin.read(&stdin_buffer) catch |err| blk: {
-            if (err == error.WouldBlock) break :blk 0;
+            if (err == error.WouldBlock or err == error.Interrupted) break :blk 0;
             if (err == error.EOF or err == error.EndOfStream) {
                 running = false;
                 break :blk 0;
@@ -855,6 +913,7 @@ fn runExecCommand(allocator: std.mem.Allocator, args: []const []const u8) !void 
         std.debug.print("  -i, --identity <key>   Private key for public key authentication\n", .{});
         std.debug.print("  --strict-host-key      Require host in known hosts\n", .{});
         std.debug.print("  --accept-new-host-key  Trust unknown host and persist (default)\n", .{});
+        std.debug.print("  --replace-trusted-host Replace stored host key for this host\n", .{});
         std.debug.print("Example: syslink exec user@host \"ls -la\"\n", .{});
         std.process.exit(1);
     }
@@ -878,6 +937,8 @@ fn runExecCommand(allocator: std.mem.Allocator, args: []const []const u8) !void 
             trust_policy = .strict;
         } else if (std.mem.eql(u8, arg, "--accept-new-host-key")) {
             trust_policy = .accept_new;
+        } else if (std.mem.eql(u8, arg, "--replace-trusted-host")) {
+            trust_policy = .replace_trusted_host;
         } else {
             try positionals.append(allocator, arg);
         }
@@ -910,6 +971,9 @@ fn runExecCommand(allocator: std.mem.Allocator, args: []const []const u8) !void 
 
     var conn = connectClientWithHostTrust(allocator, hostname, port, random, trust_policy) catch |err| {
         std.debug.print("✗ Connection failed: {}\n", .{err});
+        if (err == error.UntrustedHostKey) {
+            printHostKeyFailureGuidance(allocator, hostname, port, trust_policy);
+        }
         std.process.exit(1);
     };
     defer conn.deinit();
@@ -957,6 +1021,7 @@ fn runSftpCommand(allocator: std.mem.Allocator, args: []const []const u8) !void 
         std.debug.print("  -i, --identity <key>   Private key for public key authentication\n", .{});
         std.debug.print("  --strict-host-key      Require host in known hosts\n", .{});
         std.debug.print("  --accept-new-host-key  Trust unknown host and persist (default)\n", .{});
+        std.debug.print("  --replace-trusted-host Replace stored host key for this host\n", .{});
         std.process.exit(1);
     }
 
@@ -978,6 +1043,8 @@ fn runSftpCommand(allocator: std.mem.Allocator, args: []const []const u8) !void 
             trust_policy = .strict;
         } else if (std.mem.eql(u8, arg, "--accept-new-host-key")) {
             trust_policy = .accept_new;
+        } else if (std.mem.eql(u8, arg, "--replace-trusted-host")) {
+            trust_policy = .replace_trusted_host;
         } else if (arg[0] != '-') {
             host_arg = arg;
         }
@@ -1003,6 +1070,9 @@ fn runSftpCommand(allocator: std.mem.Allocator, args: []const []const u8) !void 
 
     var conn = connectClientWithHostTrust(allocator, hostname, port, random, trust_policy) catch |err| {
         std.debug.print("✗ Connection failed: {}\n", .{err});
+        if (err == error.UntrustedHostKey) {
+            printHostKeyFailureGuidance(allocator, hostname, port, trust_policy);
+        }
         std.process.exit(1);
     };
     defer conn.deinit();

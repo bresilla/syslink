@@ -41,6 +41,7 @@ pub const ConnectionConfig = struct {
 pub const HostKeyTrustPolicy = enum {
     strict,
     accept_new,
+    replace_trusted_host,
 };
 
 /// Server configuration for accepting connections
@@ -813,9 +814,11 @@ pub fn connectClientTrusted(
         return error.UnknownHostKey;
     }
 
-    const trusted = try allocator.alloc([]const u8, trusted_owned.len);
+    const trusted_len: usize = if (policy == .replace_trusted_host) 0 else trusted_owned.len;
+
+    const trusted = try allocator.alloc([]const u8, trusted_len);
     defer allocator.free(trusted);
-    for (trusted_owned, 0..) |fp, idx| {
+    for (trusted_owned[0..trusted_len], 0..) |fp, idx| {
         trusted[idx] = fp;
     }
 
@@ -832,6 +835,11 @@ pub fn connectClientTrusted(
         const observed = conn.getServerHostKeyFingerprint();
         if (observed.len > 0) {
             try known_hosts.addFingerprint(allocator, host_key, observed);
+        }
+    } else if (policy == .replace_trusted_host) {
+        const observed = conn.getServerHostKeyFingerprint();
+        if (observed.len > 0) {
+            try known_hosts.replaceFingerprint(allocator, host_key, observed);
         }
     }
 

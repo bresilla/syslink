@@ -7,6 +7,7 @@ const ttymodes = @import("../protocol/ttymodes.zig");
 extern "c" fn grantpt(fd: c_int) c_int;
 extern "c" fn unlockpt(fd: c_int) c_int;
 extern "c" fn ptsname(fd: c_int) [*:0]const u8;
+extern "c" fn tcgetpgrp(fd: c_int) c_int;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" var environ: [*:null]?[*:0]u8;
 
@@ -81,6 +82,13 @@ pub const Pty = struct {
         const result = std.c.ioctl(self.master_fd, TIOCSWINSZ, @intFromPtr(&winsize));
         if (result != 0) {
             return error.IoctlFailed;
+        }
+
+        // Some interactive programs do not reliably refresh unless the
+        // foreground process group receives SIGWINCH after the PTY size changes.
+        const pgrp = tcgetpgrp(self.master_fd);
+        if (pgrp > 0) {
+            std.posix.kill(-pgrp, std.posix.SIG.WINCH) catch {};
         }
     }
 };

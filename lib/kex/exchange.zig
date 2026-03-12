@@ -191,11 +191,7 @@ pub const ClientKeyExchange = struct {
         errdefer self.allocator.free(host_fingerprint);
 
         // Verify server host key against trusted fingerprint set (if configured)
-        try verifyTrustedHostKey(
-            self.allocator,
-            server_data.host_key,
-            self.init_message.?.trusted_fingerprints,
-        );
+        try verifyTrustedHostKey(host_fingerprint, self.init_message.?.trusted_fingerprints);
 
         // Derive QUIC secrets
         const quic_secrets = try shared_secrets.deriveQuicSecrets(
@@ -569,21 +565,17 @@ fn verifyServerSignature(
     }
 }
 
-fn verifyTrustedHostKey(
-    allocator: Allocator,
-    host_key_blob: []const u8,
-    trusted_fingerprints: []const []const u8,
-) !void {
+fn verifyTrustedHostKey(observed_fingerprint: []const u8, trusted_fingerprints: []const []const u8) !void {
     if (trusted_fingerprints.len == 0) return;
 
-    const fingerprint = try computeHostKeyFingerprint(allocator, host_key_blob);
-    defer allocator.free(fingerprint);
-
     for (trusted_fingerprints) |trusted| {
-        if (std.mem.eql(u8, trusted, fingerprint)) return;
+        if (std.mem.eql(u8, trusted, observed_fingerprint)) return;
     }
 
-    std.log.warn("Untrusted server host key fingerprint: {s}", .{fingerprint});
+    std.debug.print("Server host key mismatch. observed fingerprint: {s}\n", .{observed_fingerprint});
+    for (trusted_fingerprints) |trusted| {
+        std.debug.print("Trusted fingerprint from known_hosts: {s}\n", .{trusted});
+    }
     return error.UntrustedHostKey;
 }
 

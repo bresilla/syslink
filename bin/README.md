@@ -107,11 +107,12 @@ Interactive SFTP commands:
 | `-i, --identity <file>` | Private key for authentication | none |
 | `-P, --port <port>` | Server port | `2222` |
 | `--accept-new-host-key` | Trust unknown hosts on first use | enabled |
+| `--replace-trusted-host` | Replace the stored host key for this host | disabled |
 | `--strict-host-key` | Reject unknown hosts | disabled |
 
 ## Host Key Verification
 
-On first connection, the client saves the server's fingerprint to `~/.ssh/known_hosts`. Subsequent connections verify the fingerprint matches. If the server's host key changes (e.g., reinstall), delete the old entry or use a persistent host key on the server.
+On first connection, the client saves the server's fingerprint to `~/.ssh/known_hosts`. Subsequent connections verify the fingerprint matches. If the server's host key changes (e.g., reinstall), delete the old entry, use `--replace-trusted-host`, or use a persistent host key on the server.
 
 ## Connection String Format
 
