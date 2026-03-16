@@ -1,11 +1,11 @@
 const std = @import("std");
 
-pub const protocol = @import("protocol.zig");
-pub const manifest = @import("manifest.zig");
-pub const fs = @import("fs.zig");
-pub const client = @import("client.zig");
-pub const server = @import("server.zig");
-pub const workflow = @import("workflow.zig");
+pub const protocol = @import("copy_protocol.zig");
+pub const manifest = @import("copy_manifest.zig");
+pub const fs = @import("copy_fs.zig");
+pub const client = @import("copy_client.zig");
+pub const server = @import("copy_server.zig");
+pub const workflow = @import("copy_workflow.zig");
 
 pub const Client = client.Client;
 pub const PushOptions = client.PushOptions;
@@ -22,7 +22,7 @@ pub const buildManifestFromSources = fs.buildManifestFromSources;
 pub const calculateResumeState = fs.calculateResumeState;
 pub const deriveArchivePath = fs.deriveArchivePath;
 pub const joinPath = fs.joinPath;
-pub const openMacsync = workflow.openMacsync;
+pub const openCopy = workflow.openCopy;
 pub const connect = workflow.connect;
 
 test {

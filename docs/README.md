@@ -9,7 +9,7 @@ It provides the SSH protocol/runtime layer for secure remote access workflows ov
 - key exchange orchestration
 - user authentication
 - session channels (shell/exec/subsystem)
-- SFTP flows
+- file transfer flows, including SFTP and the higher-throughput copy subsystem
 - server runtime support
 
 ## Protocol shape
@@ -33,8 +33,10 @@ Each SSH channel maps to a QUIC stream, avoiding classic TCP head-of-line channe
   - auth workflows and key handling
 - `lib/channels/`
   - shell/exec/subsystem channel logic
-- `lib/sftp/`
-  - SFTP client/server utilities
+- `lib/sftp.zig` and `lib/sftp_*.zig`
+  - integrated SFTP client/server utilities
+- `lib/copy.zig` and `lib/copy_*.zig`
+  - integrated higher-throughput copy utilities used by `macsync`
 - `lib/protocol/`
   - wire format encoding/decoding and message structures
 - `lib/server/`
@@ -46,7 +48,7 @@ Client side:
 
 1. Connect (optionally with trusted-host policy).
 2. Authenticate with user identity key.
-3. Open session or SFTP channel.
+3. Open a session, SFTP channel, or copy client.
 4. Exchange channel data over mapped QUIC streams.
 
 Server side:
@@ -65,7 +67,7 @@ zig build test --summary all
 
 ## CLI note
 
-The `syslink` CLI sits in `bin/` and demonstrates production-style usage patterns for shell/exec/sftp operations.
+The `syslink` and `macsync` CLIs sit in `bin/` and demonstrate thin-client usage of the shared library surfaces for shell/exec, SFTP, and copy operations.
 
 ## Version
 

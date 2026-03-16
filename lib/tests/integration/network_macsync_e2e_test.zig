@@ -48,10 +48,10 @@ test "Integration: network macsync subsystem handshake e2e" {
     var client = try network_test_utils.connectAuthenticatedClient(allocator, server_ctx.port, CLIENT_PRNG_SEED);
     defer client.deinit();
 
-    var macsync_client = try client.openMacsync();
+    var macsync_client = try client.openCopy();
     defer macsync_client.close() catch {};
 
-    try testing.expectEqual(@as(?u16, liblink.macsync.protocol.CURRENT_VERSION), macsync_client.getNegotiatedVersion());
+    try testing.expectEqual(@as(?u16, liblink.copy.protocol.CURRENT_VERSION), macsync_client.getNegotiatedVersion());
 
     server_thread.join();
     try testing.expect(!server_ctx.failed.load(.acquire));

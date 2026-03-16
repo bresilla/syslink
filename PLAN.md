@@ -39,7 +39,7 @@ liblink already has the right extension point for a custom subsystem:
 
 - client can request arbitrary subsystems over a session channel
 - server session runtime dispatches subsystem modes
-- current server only recognizes `sftp`
+- server session runtime now recognizes both `sftp` and `macsync`
 
 The current transfer path is SFTP-oriented and not a good base for a "fast copy" API:
 
@@ -47,24 +47,24 @@ The current transfer path is SFTP-oriented and not a good base for a "fast copy"
 - small 32 KiB default transfer size
 - per-message encode/decode and allocation overhead
 
-This means `macsync` should be a new subsystem and library module, not a thin wrapper around SFTP.
+This means `macsync` should be a new subsystem and an integrated copy API in the main library surface, not a thin wrapper around SFTP.
 
 ## Proposed Architecture
 
-Add a new module tree:
+Add integrated top-level transfer files, following the same flat library layout used by the rest of liblink:
 
-- `lib/macsync/protocol.zig`
-- `lib/macsync/manifest.zig`
-- `lib/macsync/fs.zig`
-- `lib/macsync/client.zig`
-- `lib/macsync/server.zig`
-- `lib/macsync/workflow.zig`
-- `lib/macsync/macsync.zig`
+- `lib/copy_protocol.zig`
+- `lib/copy_manifest.zig`
+- `lib/copy_fs.zig`
+- `lib/copy_client.zig`
+- `lib/copy_server.zig`
+- `lib/copy_workflow.zig`
+- `lib/copy.zig`
 
 Expose it from `lib/liblink.zig` as:
 
 ```zig
-pub const macsync = @import("macsync/macsync.zig");
+pub const copy = @import("copy.zig");
 ```
 
 Add a new subsystem name:
@@ -92,7 +92,7 @@ pub const Client = struct {
     pub fn pullPaths(...) !TransferStats;
 };
 
-pub fn openMacsync(connection: *liblink.connection.ClientConnection) !MacsyncChannel;
+pub fn openCopy(connection: *liblink.connection.ClientConnection) !CopyClient;
 ```
 
 CLI code should stay thin and call the library workflow layer.
@@ -220,9 +220,9 @@ Avoid mixing `macsync` behavior into the shell or exec paths.
 
 ### Phase 1: Subsystem Plumbing
 
-- [x] add `lib/macsync` module skeleton
-- [x] export it from `lib/liblink.zig`
-- [x] add client helper to open a `macsync` subsystem
+- [x] add integrated copy module files at the top-level library surface
+- [x] export `copy` from `lib/liblink.zig`
+- [x] add client helper to open a `macsync` subsystem through `openCopy`
 - [x] extend server runtime to accept and dispatch `"macsync"`
 
 Exit criteria:

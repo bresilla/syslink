@@ -1,5 +1,5 @@
 const std = @import("std");
-const manifest_mod = @import("manifest.zig");
+const manifest_mod = @import("copy_manifest.zig");
 
 pub const WalkOptions = struct {
     preserve_mode: bool = false,

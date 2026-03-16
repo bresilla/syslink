@@ -1,12 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const wire = @import("../protocol/wire.zig");
+const wire = @import("protocol/wire.zig");
 
 /// SFTP Protocol v3 (draft-ietf-secsh-filexfer-02)
 ///
 /// SFTP runs over an SSH channel (subsystem "sftp").
 /// All packets have: uint32(length) || byte(type) || type-specific-data
-
 /// SFTP protocol version
 pub const SFTP_VERSION = 3;
 

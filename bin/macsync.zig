@@ -152,13 +152,13 @@ fn runProbeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
         std.process.exit(1);
     }
 
-    var macsync_client = liblink.macsync.connect(allocator, &conn) catch |err| {
+    var copy_client = conn.openCopy() catch |err| {
         std.debug.print("✗ macsync probe failed: {}\n", .{err});
         std.process.exit(1);
     };
-    defer macsync_client.close() catch {};
+    defer copy_client.close() catch {};
 
-    const version = macsync_client.getNegotiatedVersion() orelse liblink.macsync.protocol.CURRENT_VERSION;
+    const version = copy_client.getNegotiatedVersion() orelse liblink.copy.protocol.CURRENT_VERSION;
     std.debug.print("✓ macsync subsystem handshake succeeded (protocol version {})\n", .{version});
 }
 

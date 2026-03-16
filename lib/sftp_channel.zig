@@ -1,13 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const SessionChannel = @import("../channels/session.zig").SessionChannel;
-const channel_protocol = @import("../protocol/channel.zig");
+const SessionChannel = @import("channels/session.zig").SessionChannel;
+const channel_protocol = @import("protocol/channel.zig");
 
 /// SFTP Channel Adapter
 ///
 /// Bridges the SFTP client's Channel interface with the actual SessionChannel
 /// implementation. Handles SFTP packet framing over SSH channel data.
-
 pub const SftpChannel = struct {
     session: SessionChannel,
     allocator: Allocator,

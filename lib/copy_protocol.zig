@@ -1,6 +1,6 @@
 const std = @import("std");
-const wire = @import("../protocol/wire.zig");
-const manifest_mod = @import("manifest.zig");
+const wire = @import("protocol/wire.zig");
+const manifest_mod = @import("copy_manifest.zig");
 
 pub const CURRENT_VERSION: u16 = 1;
 pub const HANDSHAKE_TIMEOUT_MS: u32 = 10_000;

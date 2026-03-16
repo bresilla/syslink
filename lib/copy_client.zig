@@ -1,9 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const SessionChannel = @import("../channels/session.zig").SessionChannel;
-const fs_mod = @import("fs.zig");
-const manifest_mod = @import("manifest.zig");
-const protocol = @import("protocol.zig");
+const SessionChannel = @import("channels/session.zig").SessionChannel;
+const fs_mod = @import("copy_fs.zig");
+const manifest_mod = @import("copy_manifest.zig");
+const protocol = @import("copy_protocol.zig");
 
 pub const PushOptions = struct {
     frame_size: usize = 256 * 1024,

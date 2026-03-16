@@ -1,5 +1,5 @@
 const std = @import("std");
-const wire = @import("../protocol/wire.zig");
+const wire = @import("protocol/wire.zig");
 
 pub const CURRENT_VERSION: u16 = 1;
 

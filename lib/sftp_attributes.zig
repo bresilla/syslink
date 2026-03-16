@@ -1,9 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const wire = @import("../protocol/wire.zig");
+const wire = @import("protocol/wire.zig");
 
 /// SFTP file attributes per SFTP v3
-
 /// Attribute flags
 pub const AttrFlags = packed struct(u32) {
     size: bool = false,

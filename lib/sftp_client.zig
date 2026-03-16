@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const protocol = @import("protocol.zig");
-const attributes = @import("attributes.zig");
+const protocol = @import("sftp_protocol.zig");
+const attributes = @import("sftp_attributes.zig");
 
 /// SFTP client for file operations over an SSH channel
 ///
@@ -62,7 +62,7 @@ pub const SftpClient = struct {
     next_request_id: u32,
 
     /// SSH channel for SFTP communication
-    pub const Channel = @import("channel_adapter.zig").SftpChannel;
+    pub const Channel = @import("sftp_channel.zig").SftpChannel;
 
     /// Initialize SFTP client and perform version negotiation
     pub fn init(allocator: Allocator, channel: Channel) !SftpClient {

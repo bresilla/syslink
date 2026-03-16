@@ -5,8 +5,8 @@ const channel_protocol = @import("../protocol/channel.zig");
 const wire = @import("../protocol/wire.zig");
 const pty = @import("../platform/pty.zig");
 const user = @import("../platform/user.zig");
-const sftp = @import("../sftp/sftp.zig");
-const macsync = @import("../macsync/macsync.zig");
+const sftp = @import("../sftp.zig");
+const copy = @import("../copy.zig");
 
 pub const SessionMode = enum {
     shell,
@@ -45,31 +45,31 @@ const SessionEnvInfo = struct {
     }
 
     fn set(self: *SessionEnvInfo, name: []const u8, value: []const u8) !void {
-        const copy = try self.allocator.dupe(u8, value);
-        errdefer self.allocator.free(copy);
+        const value_copy = try self.allocator.dupe(u8, value);
+        errdefer self.allocator.free(value_copy);
 
         if (std.mem.eql(u8, name, "LANG")) {
             if (self.lang) |old| self.allocator.free(old);
-            self.lang = copy;
+            self.lang = value_copy;
             return;
         }
         if (std.mem.eql(u8, name, "LC_ALL")) {
             if (self.lc_all) |old| self.allocator.free(old);
-            self.lc_all = copy;
+            self.lc_all = value_copy;
             return;
         }
         if (std.mem.eql(u8, name, "LC_CTYPE")) {
             if (self.lc_ctype) |old| self.allocator.free(old);
-            self.lc_ctype = copy;
+            self.lc_ctype = value_copy;
             return;
         }
         if (std.mem.eql(u8, name, "COLORTERM")) {
             if (self.colorterm) |old| self.allocator.free(old);
-            self.colorterm = copy;
+            self.colorterm = value_copy;
             return;
         }
 
-        self.allocator.free(copy);
+        self.allocator.free(value_copy);
         return error.UnsupportedEnvironmentVariable;
     }
 };
@@ -533,7 +533,7 @@ pub const SessionRuntime = struct {
             .allocator = self.allocator,
         };
 
-        var macsync_server = try macsync.Server.init(self.allocator, session_channel);
+        var macsync_server = try copy.Server.init(self.allocator, session_channel);
         defer macsync_server.deinit();
 
         macsync_server.run() catch |err| {
@@ -699,9 +699,6 @@ pub const SessionRuntime = struct {
         const p = session.pty;
 
         var pty_buffer: [16384]u8 = undefined;
-        var channel_buffer: [16384]u8 = undefined;
-        var pending_client = std.ArrayListUnmanaged(u8){};
-        defer pending_client.deinit(self.allocator);
 
         const flags = try std.posix.fcntl(p.master_fd, std.posix.F.GETFL, 0);
         _ = try std.posix.fcntl(p.master_fd, std.posix.F.SETFL, flags | @as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
@@ -732,59 +729,48 @@ pub const SessionRuntime = struct {
                 // Other errors (e.g. WouldBlock already handled inside poll): ignore
             };
 
-            const channel_len: usize = server_conn.transport.receiveFromStream(stream_id, &channel_buffer) catch |err| blk: {
-                if (err == error.NoData or err == error.EndOfBuffer or err == error.StreamNotFound) break :blk @as(usize, 0);
-                if (err == error.StreamClosed) {
-                    exit_reason = "client stream closed";
-                    break :bridge;
-                }
-                break :blk @as(usize, 0);
-            };
+            while (true) {
+                const msg = server_conn.channel_manager.receiveMessage(stream_id) catch |err| {
+                    if (err == error.NoData or err == error.EndOfBuffer or err == error.StreamNotFound) break;
+                    if (err == error.StreamClosed) {
+                        exit_reason = "client stream closed";
+                        break :bridge;
+                    }
+                    break;
+                };
+                defer self.allocator.free(msg);
 
-            if (channel_len > 0) {
                 last_client_activity = std.time.milliTimestamp();
-                try pending_client.appendSlice(self.allocator, channel_buffer[0..channel_len]);
 
-                while (try nextClientChannelMessageLen(pending_client.items)) |msg_len| {
-                    const msg = pending_client.items[0..msg_len];
-                    const msg_type = msg[0];
-
-                    const remaining = pending_client.items.len - msg_len;
-                    if (remaining > 0) {
-                        std.mem.copyForwards(u8, pending_client.items[0..remaining], pending_client.items[msg_len..]);
-                    }
-                    pending_client.items.len = remaining;
-
-                    switch (msg_type) {
-                        94 => {
-                            var channel_data = channel_protocol.ChannelData.decode(self.allocator, msg) catch continue;
-                            defer channel_data.deinit(self.allocator);
-                            // The PTY master is non-blocking for reads, which means
-                            // writes can also short-write under pressure. Drop-free
-                            // input handling matters for TUI escape sequences.
-                            Self.writeAllToPty(p, channel_data.data) catch {
-                                exit_reason = "pty write failed";
-                                break :bridge;
-                            };
-                        },
-                        98 => {
-                            var req = channel_protocol.ChannelRequest.decode(self.allocator, msg) catch continue;
-                            defer req.deinit(self.allocator);
-
-                            if (std.mem.eql(u8, req.request_type, "window-change")) {
-                                self.handleWindowChange(stream_id, req.type_specific_data) catch {};
-                            }
-                        },
-                        96 => {
-                            exit_reason = "client sent EOF";
+                switch (msg[0]) {
+                    94 => {
+                        var channel_data = channel_protocol.ChannelData.decode(self.allocator, msg) catch continue;
+                        defer channel_data.deinit(self.allocator);
+                        // The PTY master is non-blocking for reads, which means
+                        // writes can also short-write under pressure. Drop-free
+                        // input handling matters for TUI escape sequences.
+                        Self.writeAllToPty(p, channel_data.data) catch {
+                            exit_reason = "pty write failed";
                             break :bridge;
-                        },
-                        97 => {
-                            exit_reason = "client sent channel close";
-                            break :bridge;
-                        },
-                        else => {},
-                    }
+                        };
+                    },
+                    98 => {
+                        var req = channel_protocol.ChannelRequest.decode(self.allocator, msg) catch continue;
+                        defer req.deinit(self.allocator);
+
+                        if (std.mem.eql(u8, req.request_type, "window-change")) {
+                            self.handleWindowChange(stream_id, req.type_specific_data) catch {};
+                        }
+                    },
+                    96 => {
+                        exit_reason = "client sent EOF";
+                        break :bridge;
+                    },
+                    97 => {
+                        exit_reason = "client sent channel close";
+                        break :bridge;
+                    },
+                    else => {},
                 }
             }
 

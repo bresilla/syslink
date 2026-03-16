@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const protocol = @import("protocol.zig");
-const attributes = @import("attributes.zig");
-const wire = @import("../protocol/wire.zig");
+const protocol = @import("sftp_protocol.zig");
+const attributes = @import("sftp_attributes.zig");
+const wire = @import("protocol/wire.zig");
 const c = @cImport({
     @cInclude("sys/stat.h");
     @cInclude("sys/statvfs.h");
@@ -72,7 +72,7 @@ pub const SftpServer = struct {
     open_handles: std.AutoHashMap(u64, OpenHandle),
 
     /// SSH channel for SFTP communication
-    pub const Channel = @import("channel_adapter.zig").SftpChannel;
+    pub const Channel = @import("sftp_channel.zig").SftpChannel;
 
     pub const Options = struct {
         remote_root: []const u8 = ".",

@@ -104,7 +104,7 @@ fn markFailed(flag: *std.atomic.Value(bool)) void {
 }
 
 fn serverThreadMain(ctx: *ServerThreadCtx) void {
-    var server = liblink.macsync.Server.initWithHooks(
+    var server = liblink.copy.Server.initWithHooks(
         ctx.allocator,
         ctx.duplex,
         serverSendHook,
@@ -135,15 +135,15 @@ test "Integration: in-process macsync push transfers files and directories" {
     defer std.fs.cwd().deleteTree(tmp_root) catch {};
     try std.fs.cwd().makePath(tmp_root);
 
-    const remote_root = try liblink.macsync.joinPath(allocator, tmp_root, "remote");
+    const remote_root = try liblink.copy.joinPath(allocator, tmp_root, "remote");
     defer allocator.free(remote_root);
-    const source_root = try liblink.macsync.joinPath(allocator, tmp_root, "tree");
+    const source_root = try liblink.copy.joinPath(allocator, tmp_root, "tree");
     defer allocator.free(source_root);
-    const nested_dir = try liblink.macsync.joinPath(allocator, source_root, "nested");
+    const nested_dir = try liblink.copy.joinPath(allocator, source_root, "nested");
     defer allocator.free(nested_dir);
-    const empty_dir = try liblink.macsync.joinPath(allocator, source_root, "empty");
+    const empty_dir = try liblink.copy.joinPath(allocator, source_root, "empty");
     defer allocator.free(empty_dir);
-    const solo_file = try liblink.macsync.joinPath(allocator, tmp_root, "solo.txt");
+    const solo_file = try liblink.copy.joinPath(allocator, tmp_root, "solo.txt");
     defer allocator.free(solo_file);
 
     try std.fs.cwd().makePath(remote_root);
@@ -157,14 +157,14 @@ test "Integration: in-process macsync push transfers files and directories" {
         try file.writeAll("solo-data");
     }
     {
-        const file_path = try liblink.macsync.joinPath(allocator, source_root, "root.txt");
+        const file_path = try liblink.copy.joinPath(allocator, source_root, "root.txt");
         defer allocator.free(file_path);
         var file = try std.fs.cwd().createFile(file_path, .{});
         defer file.close();
         try file.writeAll("root-data");
     }
     {
-        const file_path = try liblink.macsync.joinPath(allocator, source_root, "nested/deep.txt");
+        const file_path = try liblink.copy.joinPath(allocator, source_root, "nested/deep.txt");
         defer allocator.free(file_path);
         var file = try std.fs.cwd().createFile(file_path, .{});
         defer file.close();
@@ -186,7 +186,7 @@ test "Integration: in-process macsync push transfers files and directories" {
         server_thread.join();
     }
 
-    var client = liblink.macsync.Client.initWithHooks(
+    var client = liblink.copy.Client.initWithHooks(
         allocator,
         &duplex,
         clientSendHook,
@@ -205,13 +205,13 @@ test "Integration: in-process macsync push transfers files and directories" {
     try testing.expectEqual(@as(u32, 3), stats.file_count);
     try testing.expectEqual(@as(u64, "solo-data".len + "root-data".len + "deep-data".len), stats.total_bytes);
 
-    const remote_solo = try liblink.macsync.joinPath(allocator, remote_root, "incoming/solo.txt");
+    const remote_solo = try liblink.copy.joinPath(allocator, remote_root, "incoming/solo.txt");
     defer allocator.free(remote_solo);
-    const remote_root_file = try liblink.macsync.joinPath(allocator, remote_root, "incoming/tree/root.txt");
+    const remote_root_file = try liblink.copy.joinPath(allocator, remote_root, "incoming/tree/root.txt");
     defer allocator.free(remote_root_file);
-    const remote_nested_file = try liblink.macsync.joinPath(allocator, remote_root, "incoming/tree/nested/deep.txt");
+    const remote_nested_file = try liblink.copy.joinPath(allocator, remote_root, "incoming/tree/nested/deep.txt");
     defer allocator.free(remote_nested_file);
-    const remote_empty_dir = try liblink.macsync.joinPath(allocator, remote_root, "incoming/tree/empty");
+    const remote_empty_dir = try liblink.copy.joinPath(allocator, remote_root, "incoming/tree/empty");
     defer allocator.free(remote_empty_dir);
 
     const solo_contents = try readFileAlloc(allocator, remote_solo);
@@ -236,11 +236,11 @@ test "Integration: in-process macsync resume completes partial destination" {
     defer std.fs.cwd().deleteTree(tmp_root) catch {};
     try std.fs.cwd().makePath(tmp_root);
 
-    const remote_root = try liblink.macsync.joinPath(allocator, tmp_root, "remote");
+    const remote_root = try liblink.copy.joinPath(allocator, tmp_root, "remote");
     defer allocator.free(remote_root);
-    const source_root = try liblink.macsync.joinPath(allocator, tmp_root, "payload");
+    const source_root = try liblink.copy.joinPath(allocator, tmp_root, "payload");
     defer allocator.free(source_root);
-    const nested_dir = try liblink.macsync.joinPath(allocator, source_root, "nested");
+    const nested_dir = try liblink.copy.joinPath(allocator, source_root, "nested");
     defer allocator.free(nested_dir);
 
     try std.fs.cwd().makePath(remote_root);
@@ -248,42 +248,42 @@ test "Integration: in-process macsync resume completes partial destination" {
     try std.fs.cwd().makePath(nested_dir);
 
     {
-        const file_path = try liblink.macsync.joinPath(allocator, source_root, "alpha.txt");
+        const file_path = try liblink.copy.joinPath(allocator, source_root, "alpha.txt");
         defer allocator.free(file_path);
         var file = try std.fs.cwd().createFile(file_path, .{});
         defer file.close();
         try file.writeAll("alpha-complete");
     }
     {
-        const file_path = try liblink.macsync.joinPath(allocator, source_root, "nested/beta.txt");
+        const file_path = try liblink.copy.joinPath(allocator, source_root, "nested/beta.txt");
         defer allocator.free(file_path);
         var file = try std.fs.cwd().createFile(file_path, .{});
         defer file.close();
         try file.writeAll("beta-content-long");
     }
 
-    const resume_dest_root = try liblink.macsync.joinPath(allocator, remote_root, "resume/payload");
+    const resume_dest_root = try liblink.copy.joinPath(allocator, remote_root, "resume/payload");
     defer allocator.free(resume_dest_root);
-    const resume_nested_dir = try liblink.macsync.joinPath(allocator, resume_dest_root, "nested");
+    const resume_nested_dir = try liblink.copy.joinPath(allocator, resume_dest_root, "nested");
     defer allocator.free(resume_nested_dir);
     try std.fs.cwd().makePath(resume_nested_dir);
 
     {
-        const file_path = try liblink.macsync.joinPath(allocator, resume_dest_root, "alpha.txt");
+        const file_path = try liblink.copy.joinPath(allocator, resume_dest_root, "alpha.txt");
         defer allocator.free(file_path);
         var file = try std.fs.cwd().createFile(file_path, .{});
         defer file.close();
         try file.writeAll("alpha-complete");
     }
     {
-        const file_path = try liblink.macsync.joinPath(allocator, resume_dest_root, "nested/beta.txt");
+        const file_path = try liblink.copy.joinPath(allocator, resume_dest_root, "nested/beta.txt");
         defer allocator.free(file_path);
         var file = try std.fs.cwd().createFile(file_path, .{});
         defer file.close();
         try file.writeAll("beta");
     }
 
-    var manifest = try liblink.macsync.buildManifestFromPaths(allocator, &[_][]const u8{source_root}, .{});
+    var manifest = try liblink.copy.buildManifestFromPaths(allocator, &[_][]const u8{source_root}, .{});
     defer manifest.deinit(allocator);
     const beta_entry = manifest.findByPath("payload/nested/beta.txt") orelse return error.MissingManifestEntry;
 
@@ -302,7 +302,7 @@ test "Integration: in-process macsync resume completes partial destination" {
         server_thread.join();
     }
 
-    var client = liblink.macsync.Client.initWithHooks(
+    var client = liblink.copy.Client.initWithHooks(
         allocator,
         &duplex,
         clientSendHook,
@@ -321,9 +321,9 @@ test "Integration: in-process macsync resume completes partial destination" {
     try testing.expectEqual(@as(?u32, beta_entry.file_id), stats.resumed_file_id);
     try testing.expectEqual(@as(u64, 4), stats.resumed_offset);
 
-    const alpha_path = try liblink.macsync.joinPath(allocator, resume_dest_root, "alpha.txt");
+    const alpha_path = try liblink.copy.joinPath(allocator, resume_dest_root, "alpha.txt");
     defer allocator.free(alpha_path);
-    const beta_path = try liblink.macsync.joinPath(allocator, resume_dest_root, "nested/beta.txt");
+    const beta_path = try liblink.copy.joinPath(allocator, resume_dest_root, "nested/beta.txt");
     defer allocator.free(beta_path);
 
     const alpha_contents = try readFileAlloc(allocator, alpha_path);

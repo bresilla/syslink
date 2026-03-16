@@ -1,10 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const SessionChannel = @import("../channels/session.zig").SessionChannel;
-const client_mod = @import("client.zig");
-const fs_mod = @import("fs.zig");
-const manifest_mod = @import("manifest.zig");
-const protocol = @import("protocol.zig");
+const SessionChannel = @import("channels/session.zig").SessionChannel;
+const client_mod = @import("copy_client.zig");
+const fs_mod = @import("copy_fs.zig");
+const manifest_mod = @import("copy_manifest.zig");
+const protocol = @import("copy_protocol.zig");
 
 pub const Server = struct {
     pub const SendFn = client_mod.Client.SendFn;
